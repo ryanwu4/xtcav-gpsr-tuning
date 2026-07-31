@@ -1,0 +1,8 @@
+[project]
+name = "xtcav-gpsr-tuning"
+version = "0.0.1"
+description = "GPSR-style knob-delta fitting against real FACET-II XTCAV images (differentiable XTCAVF->DTOTR segment + flow surrogate). Used via PYTHONPATH, never pip-installed."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
