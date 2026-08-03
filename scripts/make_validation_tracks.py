@@ -31,6 +31,7 @@ os.environ["MKL_NUM_THREADS"] = _THREADS
 
 import argparse
 import json
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -108,7 +109,15 @@ def main():
         nmacro = args.nmacro or d["num_macro_particles"]
 
         if tao is None:
-            base_cfg = qs.loadConfig("/setLattice_configs/2024-10-14_twoBunch_baseline.yml", s2e_root)
+            # baseline_config from the campaign yaml when available (avoids silent
+            # divergence if a future campaign changes it); fallback = the current one.
+            camp_yaml = paths.TWOBUNCH_ROOT / "configs" / "datagen" / f"{args.campaign}.yaml"
+            baseline_rel = "setLattice_configs/2024-10-14_twoBunch_baseline.yml"
+            if camp_yaml.exists():
+                import yaml
+                baseline_rel = yaml.safe_load(camp_yaml.read_text()).get(
+                    "baseline_config", baseline_rel)
+            base_cfg = qs.loadConfig("/" + baseline_rel, s2e_root)
             tao = qs.initializeTao(
                 filePath=s2e_root,
                 inputBeamFilePathSuffix=base_cfg["inputBeamFilePathSuffix"],
@@ -118,6 +127,14 @@ def main():
                 scratchPath=str(scratch),
                 randomizeFileNames=True,
             )
+            # makeBeamActiveBeamFile (below) OVERWRITES the active beam file with the
+            # ENDBC20 checkpoint; without a restore, every sample after the first would
+            # inject a ~10 GeV beam at L0AFEND (the xtcav_sim_scan.py lesson, and critic
+            # finding C1). Stash the pristine L0AFEND input and restore it per sample.
+            pristine = out_dir / "input_L0AFEND.h5"
+            shutil.copy(tao.activeFilePath, pristine)
+
+        shutil.copy(pristine, tao.activeFilePath)  # restore L0AFEND input beam
 
         # fixed_overrides carries trackEnd: PENT from the campaign — force DTOTR here.
         merged = {**base_cfg, **fixed, **merged_base, "trackEnd": "DTOTR"}

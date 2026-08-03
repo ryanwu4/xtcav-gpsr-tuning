@@ -1,0 +1,61 @@
+# Stage-C MAP fit configuration (plan C2). σ_j values are DRAFTS with provenance
+# flags — every TODO-ryan/ops entry must be confirmed before Stage D.
+checkpoint: trained/xtcav23/checkpoints/best-epoch=498-val_loss=0.1747.ckpt
+norm_json: processed/xtcav23_combined_norm.json
+segment_spec: configs/segment_baseline.json
+
+bandwidth_um: 61.0          # Stage-C FIT bandwidth = 2 px: at 1 px the independent-z KDE noise
+                            # floor (TV 0.14 at n=8k) swamps 2-sigma_j signals (S/N<1, measured);
+                            # 2 px + n=16k gives S/N 2.5. Stage-D sets the real-PSF value.
+n_particles: 16384          # per bunch (GPU); measured noise study: S/N 0.94/1.46/2.50 at
+                            # (8k,1px)/(8k,2px)/(16k,2px) for a 2-sigma_j mover signal
+delta_bound_frac: 0.45      # tanh bound as a fraction of each knob's box span
+w_charge_split: 0.1
+voltage_V: 22.0e6           # Stage-C truth (the 28.5 MV init is a Stage-D prior only)
+anchor: com                 # C3 calibrates λ under BOTH 'com' and 'major_lobe'
+
+# ν_y and V_eff carry NO priors (critic finding 5: a bound ν_y would push
+# kicker-type η_y signatures into the movers and corrupt the elimination gate).
+
+# The 17 fitted knob-δ dims (kickers eliminated 2026-08-02, notebook §4b)
+fit_knobs:
+  - L1EnergyOffset
+  - L2EnergyOffset
+  - L3EnergyOffset
+  - S1ELkG
+  - S2ELkG
+  - S3ELkG
+  - Q5FFkG
+  - Q4FFkG
+  - Q3FFkG
+  - S1EL_xOffset
+  - S1EL_yOffset
+  - S2EL_xOffset
+  - S2EL_yOffset
+  - S2ER_xOffset
+  - S2ER_yOffset
+  - S1ER_xOffset
+  - S1ER_yOffset
+
+# Prior widths σ_j, PHYSICAL units (same units as sweep_params/setLattice).
+sigma_phys:
+  L1EnergyOffset: 0.6e6      # ~0.3% of L1 210 MeV gain  TODO-ryan/ops: klystron stability
+  L2EnergyOffset: 8.0e6      # ~0.2% of L2 4.165 GeV     TODO-ryan/ops
+  L3EnergyOffset: 11.0e6     # ~0.2% of L3 5.5 GeV       TODO-ryan/ops
+  S1ELkG: 10.5               # 0.5% of golden 2089       TODO-ryan/ops: SCP readback accuracy
+  S2ELkG: 19.8               # 0.5% of golden −3954      TODO-ryan/ops
+  S3ELkG: 5.4                # 0.5% of golden −1088      TODO-ryan/ops
+  Q5FFkG: 0.36               # 0.5% of recorded −72.2    TODO-ryan/ops: LGPS BACT accuracy
+  Q4FFkG: 0.41               # 0.5% of recorded −81.2    TODO-ryan/ops
+  Q3FFkG: 0.50               # 0.5% of recorded  99.2    TODO-ryan/ops
+  S1EL_xOffset: 100.0e-6     # mover centering accuracy O(100 µm)  TODO-ryan/ops
+  S1EL_yOffset: 100.0e-6     # TODO-ryan/ops
+  S2EL_xOffset: 100.0e-6     # TODO-ryan/ops
+  S2EL_yOffset: 100.0e-6     # TODO-ryan/ops
+  S2ER_xOffset: 100.0e-6     # TODO-ryan/ops
+  S2ER_yOffset: 100.0e-6     # TODO-ryan/ops
+  S1ER_xOffset: 100.0e-6     # TODO-ryan/ops
+  S1ER_yOffset: 100.0e-6     # TODO-ryan/ops
+
+# λ grid for the C3 L-curve (chosen value recorded in results/stageC/)
+lambda_grid: [3.0e-4, 1.0e-3, 3.0e-3, 1.0e-2]

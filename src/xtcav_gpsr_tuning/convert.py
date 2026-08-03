@@ -97,6 +97,61 @@ def particlegroup_to_beam(
     return beam, info
 
 
+def cloud_to_beam(
+    cloud: torch.Tensor,
+    ref_energy_eV: float,
+    particle_charges: torch.Tensor,
+    device=None,
+    dtype=torch.float64,
+):
+    """Flow-sampled cloud (..., N, 6) in (x, y, z, px, py, pz) [m, eV/c] ->
+    Cheetah ParticleBeam. Fully torch-differentiable (no ParticleGroup detour) —
+    knob-δ gradients flow through to the segment/screen.
+
+    Conventions (critic finding M2 — verified against the campaign save path):
+    * The training clouds' z is EXACTLY -c*(t - <t>_w) (``getBeamAtElement`` writes
+      it with full c, not beta*c), and Bmad's TDC zero crossing is the charge-
+      weighted beam mean (Stage-A measurement) -> **tau = -z exactly**, no beta
+      correction. No re-centering is applied here: the flow's frame IS the
+      training frame (per-sample beam mean = RF reference); per-sample residual
+      phase offsets are measured in Stage C, not assumed away.
+    * The flow emits momenta, not energy: delta = (sqrt(px^2+py^2+pz^2+mc2^2)
+      - E_ref)/p0c, with E_ref the lattice reference energy at the handoff
+      (spec meta ``ref_energy_eV``), matching ``particlegroup_to_beam``.
+    * ``particle_charges``: per-particle charge in C, shape broadcastable to
+      cloud[..., 0]. For a flow bunch, pass T_k * Q_k_full / N per particle so
+      the downstream KDE charge weighting matches the plan.
+    """
+    paths.ensure_import_roots()
+    import cheetah
+
+    fk = {"device": device, "dtype": dtype}
+    species = _species("electron", fk)
+    mc2 = float(species.mass_eV)
+    p0c = math.sqrt(ref_energy_eV**2 - mc2**2)
+
+    c = cloud.to(**{k: v for k, v in fk.items() if v is not None})
+    x, y, z = c[..., 0], c[..., 1], c[..., 2]
+    px, py, pz = c[..., 3], c[..., 4], c[..., 5]
+    tau = -z
+    energy = (px**2 + py**2 + pz**2 + mc2**2).sqrt()
+    delta = (energy - ref_energy_eV) / p0c
+
+    particles = torch.stack(
+        [x, px / p0c, y, py / p0c, tau, delta, torch.ones_like(x)], dim=-1
+    )
+    charges = torch.as_tensor(particle_charges, **fk).broadcast_to(x.shape)
+    return cheetah.ParticleBeam(
+        particles=particles,
+        energy=torch.tensor(float(ref_energy_eV), **fk),
+        particle_charges=charges,
+        survival_probabilities=torch.ones_like(x),
+        species=species,
+        device=device,
+        dtype=dtype,
+    )
+
+
 def weighted_stats(values: torch.Tensor, weights: torch.Tensor) -> dict:
     """Charge-weighted mean/std of a 1-D coordinate tensor."""
     w = weights / weights.sum()
