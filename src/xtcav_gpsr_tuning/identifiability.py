@@ -20,7 +20,9 @@ import torch
 
 
 def _images_at(model, theta: np.ndarray) -> torch.Tensor:
-    """Evaluate the forward at prior-scaled parameter vector theta (no grad)."""
+    """Evaluate the forward at prior-scaled parameter vector theta (no grad).
+    Order: [nd knob pulls, 3 dtr (1% k1), log nu_y, then — each only when the
+    model actually fits it — veff (MV), log sdelta, log ex, l2_shift (deg)."""
     nd = len(model.s.fit_knobs)
     with torch.no_grad():
         delta_norm = torch.tensor(theta[:nd], dtype=torch.float64,
@@ -30,17 +32,36 @@ def _images_at(model, theta: np.ndarray) -> torch.Tensor:
         model.dtr.copy_(torch.tensor(theta[nd:nd + 3] * 0.01, dtype=torch.float64,
                                      device=model.base.device))
         model.log_nu_y.copy_(torch.tensor(theta[nd + 3], dtype=torch.float64))
-        model.veff_frac.copy_(torch.tensor(theta[nd + 4], dtype=torch.float64)
-                              * 1e6 / model.v_nominal)
+        j = nd + 4
+        if model.veff_frac.requires_grad:
+            model.veff_frac.copy_(torch.tensor(theta[j], dtype=torch.float64)
+                                  * 1e6 / model.v_nominal)
+            j += 1
+        if model.log_sdelta.requires_grad:
+            model.log_sdelta.copy_(torch.tensor(theta[j], dtype=torch.float64))
+            j += 1
+        if model.log_ex.requires_grad:
+            model.log_ex.copy_(torch.tensor(theta[j], dtype=torch.float64))
+            j += 1
+        if model.l2_shift_deg.requires_grad:
+            model.l2_shift_deg.copy_(torch.tensor(theta[j], dtype=torch.float64))
         imgs, _ = model()
     return imgs
 
 
 def jacobian_svd(model, cut: float = 0.05, downsample: int = 2,
                  eps: float = 0.25) -> dict:
+    # Only parameters the fit actually varies (audit #7): V_eff is frozen in
+    # Stage D (fit_veff=False), so including it put 40-44% of two kept
+    # directions' norm on a coordinate that is identically zero; l2_shift_deg
+    # IS fitted and was missing from the accounting entirely.
     names = ([f"delta:{k}" for k in model.s.fit_knobs]
              + [f"dtr:{n}" for n in model.s.dtr_names]
-             + ["nu_y(log)", "veff(MV)"])
+             + ["nu_y(log)"]
+             + (["veff(MV)"] if model.veff_frac.requires_grad else [])
+             + (["sdelta(ln)"] if model.log_sdelta.requires_grad else [])
+             + (["ex(ln)"] if model.log_ex.requires_grad else [])
+             + (["l2_shift(deg)"] if model.l2_shift_deg.requires_grad else []))
     n_par = len(names)
     ds = downsample
 

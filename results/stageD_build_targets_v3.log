@@ -1,0 +1,89 @@
+  off-shot gate (amp < 1.0): 52/400 kept (mean_on_amp 22.01)
+  dead-frame floor: 1.01e+05 counts (0.2 x median 5.05e+05)
+  step   1 (scan +0.00 deg): n+=20 n-=16 off=5 floors 0.0712/0.0528 off_xrms 125um
+  step   2 (scan +0.25 deg): n+=16 n-=28 off=8 floors 0.1050/0.0860 off_xrms 123um
+  step   3 (scan +0.50 deg): n+=12 n-=23 off=10 floors 0.0617/0.0871 off_xrms 126um
+  step   4 (scan +0.75 deg): n+=14 n-=18 off=8 floors 0.1655/0.1007 off_xrms 123um
+  step   5 (scan +1.00 deg): n+=27 n-=12 off=10 floors 0.0875/0.1620 off_xrms 125um
+  step   6 (scan +1.25 deg): n+=26 n-=10 off=10 floors 0.0706/0.1791 off_xrms 124um
+  step   7 (scan +1.50 deg): n+=19 n-=11 off=12 floors 0.2470/0.2484 off_xrms 120um
+  step   8 (scan +1.75 deg): n+=14 n-=21 off=11 floors 0.3484/0.0901 off_xrms 115um
+  step   9 (scan +2.00 deg): n+=13 n-=20 off=11 floors 0.0839/0.1359 off_xrms 119um
+  step  10 (scan +2.25 deg): n+=9 n-=10 off=9 floors 0.1051/0.1785 off_xrms 116um
+  step  11 (scan +2.50 deg): n+=9 n-=14 off=7 floors 0.2215/0.0700 off_xrms 119um
+  step  12 (scan +2.75 deg): n+=24 n-=10 off=3 floors 0.0650/0.1952 off_xrms 129um
+  step  13 (scan +3.00 deg): n+=23 n-=5 off=2 floors 0.1019/0.1528 off_xrms 136um
+  step  14 (scan +3.25 deg): n+=16 n-=15 off=3 floors 0.0776/0.1353 off_xrms 129um
+  step  15 (scan +3.50 deg): n+=14 n-=11 off=5 floors 0.0311/0.1191 off_xrms 123um
+  step  16 (scan +3.75 deg): n+=16 n-=13 off=7 floors 0.1259/0.1034 off_xrms 122um
+  step  17 (scan +4.00 deg): n+=20 n-=13 off=10 floors 0.1238/0.0734 off_xrms 120um
+  step  18 (scan +4.25 deg): n+=11 n-=10 off=12 floors 0.1654/0.2695 off_xrms 119um
+  step  19 (scan +4.50 deg): n+=17 n-=31 off=10 floors 0.1186/0.0449 off_xrms 116um
+  step  20 (scan +4.75 deg): n+=16 n-=12 off=10 floors 0.0813/0.0522 off_xrms 118um
+  step  21 (scan +5.00 deg): n+=21 n-=8 off=9 floors 0.1410/0.1350 off_xrms 118um
+  step  22 (scan +5.25 deg): n+=6 n-=7 off=5 floors 0.3837/0.1287 off_xrms 120um
+  step  23 (scan +5.50 deg): n+=7 n-=18 off=5 floors 0.0930/0.1247 off_xrms 119um
+  step  24 (scan +5.75 deg): n+=13 n-=20 off=6 floors 0.2190/0.0680 off_xrms 118um
+  step  25 (scan +6.00 deg): n+=8 n-=20 off=4 floors 0.1242/0.0607 off_xrms 115um
+  step  26 (scan +6.25 deg): n+=10 n-=10 off=3 floors 0.1733/0.1444 off_xrms 115um
+  step  27 (scan +6.50 deg): n+=11 n-=9 off=4 floors 0.0888/0.0948 off_xrms 123um
+  step  28 (scan +6.75 deg): n+=19 n-=13 off=3 floors 0.1563/0.1901 off_xrms 137um
+  step  29 (scan +7.00 deg): n+=13 n-=8 off=6 floors 0.0959/0.0508 off_xrms 159um
+  step  30 (scan +7.25 deg): n+=22 n-=10 off=9 floors 0.1727/0.0473 off_xrms 155um
+  step  31 (scan +7.50 deg): n+=18 n-=12 off=9 floors 0.1819/0.1638 off_xrms 155um
+  step  32 (scan +7.75 deg): n+=9 n-=16 off=8 floors 0.2623/0.1141 off_xrms 157um
+  step  33 (scan +8.00 deg): n+=12 n-=25 off=7 floors 0.1567/0.1013 off_xrms 157um
+targets: /home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/results/stageD/15673/targets.npz
+{
+ "dataset": "E300_15673",
+ "n_steps": 33,
+ "n_shots_median": 13.5,
+ "n_shots_min": 5,
+ "empty_targets": 0,
+ "floor_tv_median": 0.11880536574729429,
+ "floor_tv_max": 0.38370160103231166,
+ "split_median_plus": 0.5853126583548808,
+ "split_median_neg": 0.4338623125599816,
+ "widened_targets": 0,
+ "n_masked_px": 0,
+ "provenance": {
+  "dataset": "E300_15673",
+  "hand_crop": [
+   200,
+   0,
+   650,
+   300
+  ],
+  "hot_pix_threshold": 1000.0,
+  "noise_threshold": 35,
+  "median_filter": 3,
+  "pixel_um": 30.5,
+  "grid": [
+   160,
+   300
+  ],
+  "phase_window_deg": 0.2,
+  "widen_deg": 0.3,
+  "min_shots": 5,
+  "off_pool_halfwidth": 2,
+  "off_amp_max": 1.0,
+  "n_off_shots_gated_out": 348,
+  "anchor": "image_com (screen.com_center_image, shared with the fit)",
+  "orientation": "canonical camera frame; rows=y/energy, plus=ix_plus",
+  "row_distortion_correction": "per-step off-shot references (deployed)",
+  "split_temp_m": 3e-05,
+  "artifact_repair": "camera-frame fixed-pattern pixels replaced by 5x5 local median before anchoring (mask kept all-ones)",
+  "n_artifact_px": 22,
+  "artifact_bbox_rows": [
+   130,
+   136
+  ],
+  "artifact_bbox_cols": [
+   214,
+   236
+  ],
+  "n_lowsignal_shots_dropped": 33,
+  "min_counts_frac": 0.2,
+  "dead_frame_counts_floor": 100904.6
+ }
+}

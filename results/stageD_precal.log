@@ -1,0 +1,23 @@
+device=cuda  V_eff=27.482 MV  bandwidth=264.0 um
+== D0.3 register: Jacobian SVD on the 66-image geometry ==
+  kept 6/22; low-leverage (<0.05): ['delta:L1EnergyOffset', 'delta:S1ELkG', 'delta:S3ELkG', 'delta:Q5FFkG', 'delta:Q4FFkG', 'delta:Q3FFkG', 'delta:S1ER_yOffset']
+  TV S/N vs floor (median floor 0.124): {'delta:L1EnergyOffset': 0.18, 'delta:L2EnergyOffset': 1.21, 'delta:L3EnergyOffset': 1.67, 'delta:S1ELkG': 0.15, 'delta:S2ELkG': 0.39, 'delta:S3ELkG': 0.01, 'delta:Q5FFkG': 0.13, 'delta:Q4FFkG': 0.11, 'delta:Q3FFkG': 0.18, 'delta:S1EL_xOffset': 0.43, 'delta:S1EL_yOffset': 1.06, 'delta:S2EL_xOffset': 0.82, 'delta:S2EL_yOffset': 1.08, 'delta:S2ER_xOffset': 0.77, 'delta:S2ER_yOffset': 0.32, 'delta:S1ER_xOffset': 0.38, 'delta:S1ER_yOffset': 0.16, 'dtr:Q2FF': 0.67, 'dtr:Q1FF': 1.0, 'dtr:Q0FF': 0.27, 'nu_y(log)': 6.76, 'veff(MV)': 0.59}
+== D0.4 lambda re-calibration ==
+/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/src/xtcav_gpsr_tuning/fit.py:300: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  hist.append(float(parts["total"]))
+  image_com lam=0.0003 seed=0: img 0.0225 pull_err 0.63
+  image_com lam=0.0003 seed=1: img 0.0234 pull_err 0.56
+  image_com lam=0.001 seed=0: img 0.0213 pull_err 0.45
+device=cuda  V_eff=27.482 MV  bandwidth=264.0 um
+== D0.5 nu_y jitter replication ==
+/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/src/xtcav_gpsr_tuning/fit.py:300: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  hist.append(float(parts["total"]))
+  seed 0: nu_y 0.9557 max|pull| 0.38
+  seed 1: nu_y 0.9444 max|pull| 0.49
+  seed 2: nu_y 0.9940 max|pull| 0.42
+  seed 3: nu_y 0.9524 max|pull| 0.37
+  seed 4: nu_y 0.9356 max|pull| 0.42
+  nu_y median 0.9524 spread 0.0584
+done -> /home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/results/stageD/15673/precal

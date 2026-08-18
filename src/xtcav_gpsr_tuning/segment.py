@@ -98,6 +98,10 @@ def _make_tdc(ed: dict, factory_kwargs: dict):
         tilt=t(a.get("tilt", 0.0)),
         name=ed["name"],
         sanitize_name=True,
+        # constructor-made defaults (misalignment) must land on the same device —
+        # without this they default to CPU and only survived Stage C because
+        # ForwardModel.to() happened to move the TDC as a registered submodule
+        **factory_kwargs,
     )
 
 
@@ -192,7 +196,8 @@ def back_drift(beam, length_m: float):
     return d.track(beam)
 
 
-def numerical_rmatrix(segment, ref_energy_eV: float, species_name: str = "electron", eps: float = 1e-6):
+def numerical_rmatrix(segment, ref_energy_eV: float, species_name: str = "electron", eps: float = 1e-6,
+                      device="cpu"):
     """First-order transfer matrix of the segment by central finite differences.
 
     DKD elements expose no closed-form map (critic M4), so we linearize
@@ -206,9 +211,10 @@ def numerical_rmatrix(segment, ref_energy_eV: float, species_name: str = "electr
     from cheetah.particles import Species
 
     dtype = torch.float64
+    device = torch.device(device)
     species = Species(species_name, dtype=dtype)
     n = 6
-    probes = torch.zeros((2 * n + 1, 7), dtype=dtype)
+    probes = torch.zeros((2 * n + 1, 7), dtype=dtype, device=device)
     probes[:, 6] = 1.0
     for j in range(n):
         probes[2 * j, j] = +eps
@@ -216,13 +222,13 @@ def numerical_rmatrix(segment, ref_energy_eV: float, species_name: str = "electr
 
     beam = cheetah.ParticleBeam(
         particles=probes,
-        energy=torch.tensor(float(ref_energy_eV), dtype=dtype),
-        particle_charges=torch.ones(2 * n + 1, dtype=dtype),
-        survival_probabilities=torch.ones(2 * n + 1, dtype=dtype),
+        energy=torch.tensor(float(ref_energy_eV), dtype=dtype, device=device),
+        particle_charges=torch.ones(2 * n + 1, dtype=dtype, device=device),
+        survival_probabilities=torch.ones(2 * n + 1, dtype=dtype, device=device),
         species=species,
     )
     out = segment.track(beam).particles[..., :6]
     R = torch.zeros((n, n), dtype=dtype)
     for j in range(n):
-        R[:, j] = (out[2 * j] - out[2 * j + 1]) / (2 * eps)
+        R[:, j] = ((out[2 * j] - out[2 * j + 1]) / (2 * eps)).cpu()
     return R.numpy()

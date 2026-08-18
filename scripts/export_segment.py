@@ -56,7 +56,14 @@ CONFIGURATOR_TCAV_OPTICS = {
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--optics", choices=["baseline", "configurator"], default="baseline")
+    ap.add_argument("--optics", default="baseline",
+                    help="'baseline' | 'configurator' | a name for --machine-config optics")
+    ap.add_argument("--machine-config", default=None,
+                    help="path to a sim2real machine_config.json: overlays the recorded "
+                         "value_match quad BACTs (incl. Q0D/Q1D/Q2D), Q19851/71, and "
+                         "B5D36GeVc onto the baseline config (Stage-D D0.1 — the dataset-"
+                         "configured segment; the baseline spec's Q0D/Q2D are 5.6% off "
+                         "15673's recorded values → R12 −10%)")
     ap.add_argument("--nmacro", type=float, default=1e4)
     ap.add_argument("--voltage", type=float, default=20e6)
     ap.add_argument("--phi0-test-deg", type=float, default=2.0)
@@ -74,6 +81,15 @@ def main():
     config = qs.loadConfig(f"/{CONFIG_FILE}", s2e_root)
     if args.optics == "configurator":
         config = {**config, **CONFIGURATOR_TCAV_OPTICS}
+    if args.machine_config:
+        mc = json.loads(Path(args.machine_config).read_text())
+        overrides = {k: float(v["kG"]) for k, v in
+                     mc["quad_mappings"]["value_match"].items()}  # Q5FF..Q0FF + Q0D/Q1D/Q2D
+        for k in ("Q19851kG", "Q19871kG", "B5D36GeVc"):
+            if k in mc:
+                overrides[k] = mc[k]
+        config = {**config, **overrides}
+        print(f"machine-config overrides applied: { {k: round(float(v), 3) for k, v in overrides.items()} }")
 
     timing = {}
     t0 = time.perf_counter()

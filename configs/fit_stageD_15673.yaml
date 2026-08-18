@@ -1,0 +1,147 @@
+# Stage-D MAP fit configuration — dataset E300_15673 (plan D2, critic-corrected).
+# σ_j values remain DRAFTS with provenance flags (D0.6: Ryan/ops sign-off pending;
+# results are provisional until then).
+checkpoint: trained/xtcav23/checkpoints/best-epoch=498-val_loss=0.1747.ckpt
+norm_json: processed/xtcav23_combined_norm.json
+segment_spec: configs/segment_15673.json   # D0.1: 15673 value_match BACTs (entrance R12 −20.59)
+
+dataset: E300_15673
+machine_config: /home/rwu4/photoinjector-rl/XTCAV_analysis/sim2real/results/tier1_sim_scans/E300_15673/machine_config.json
+targets_npz: results/stageD/15673/targets.npz
+
+# --- geometry / rendering (v2 kernel policy, 2026-08-05, critic-reviewed) ----
+dtotr2_extra_drift_m: 0.6      # the +0.6 m DTOTR2 z-correction (fixed, never co-fit with V_eff)
+bandwidth_um: 30.5             # FROZEN 1-px kernel, both axes. v1's 264 µm (σ_eff-derived)
+                               # is refuted by the data: as a Gaussian sigma it implies
+                               # FWHM 2.355*264 = 622 µm, but the real streaked core is
+                               # 274 µm FWHM (blur_decomposition.json). In-data PSF bound
+                               # from that core against the model's 214 µm FWHM at 1 px:
+                               # sqrt(274.5^2-213.5^2)/2.355 = 73 µm. DTOTR2 is the
+                               # in-vacuum OTR monitor (Storey PRAB 27,051302 — cite the
+                               # specific figure before quoting its resolution numbers).
+                               # Instrument = pixel box (sigma 8.8 µm) + small optics.
+                               # The freed width discrepancy moved into PHYSICS nuisances
+                               # (sdelta/ex below) — never back into the kernel.
+bandwidth_scan: [0.7, 1.0, 1.3]  # pre-registered model-side sensitivity multipliers
+n_particles: 65536             # per bunch. REQUIRED at 1 px: measured KDE-TV pair noise
+                               # 0.173 @16k (> real floor 0.124, unusable), 0.089 @64k.
+anchor: image_com              # D1/M6: shared IMAGE-space pixel-COM op on BOTH sides
+                               # (model renders anchor='none', then com_center_image).
+
+# --- physics nuisances (per-bunch scale_bunch). ALL nuisance priors are
+# LAMBDA-SCALED (v3.1 fix): sigma means 'a deviation of sigma costs the same
+# as a knob at 1 sigma_j'. v3 had them unit-weight, i.e. 1/lambda ~ 100x too
+# strong, which froze every nuisance and failed the D0.2 sdelta recovery gate.
+# sdelta: pz-spread scale about each bunch's mean — the residual projected
+# energy-spread deficit. REVISED 2026-08-07 after the handoff back-drift fix
+# (see sdelta_backdrift_check.json): the pre-fix y-deficit of 2.08x (streaked) /
+# 2.16x (off) was ~41% an artifact of the missing 1.0334 m of transport, which
+# made R34 31% wrong. Post-fix the real residual is ~1.54x / 1.59x — real, so
+# the nuisance stays, but as a modest surrogate-error correction rather than a
+# 2-3x rescue. Prior tightened 1.1 -> 0.35 so it cannot act as a free width knob
+# (1.5x sits at 1.16 sigma). Caveat: the deficit is step-dependent (at deep
+# compression sdelta barely moves y at all), so a global scale cannot close the
+# scan and a late-step y residual is expected — that part is flow fidelity.
+sdelta_prior_sigma_ln: 0.35
+# ex: (x,px)-spread scale about each bunch's centroid — emittance-scale nuisance
+# (PSF–ε degeneracy broken by the FROZEN kernel policy). ε_y NOT fitted:
+# dispersion-dominated y makes it unidentifiable (3-way degenerate w/ nu_y+sdelta).
+ex_prior_sigma_ln: 0.4         # allows ~1.5×
+# δ_tr (Q2/Q1/Q0FF fractional k1) prior — v2.1. δ_tr was the ONE unregularized
+# DOF: harmless under the 264 µm blur (dtr stayed <0.1%), but at the 1-px kernel
+# it becomes a free 3-DOF width knob. Q2/Q1/Q0FF are the same magnet class as
+# Q5/Q4/Q3FF, whose σ_j is 0.5% of setting — same prior, in fractional units.
+dtr_prior_sigma_frac: 0.005    # TODO-ryan/ops (same provenance as the FF quad σ_j)
+
+# --- conditioning (D2) --------------------------------------------------------
+l1_anchor_deg: -20.0           # FIXED for all steps (critic M4: recorded per-step KLYS deltas
+                               # are BC11-feedback drift compensation, corr −0.94; the servo-
+                               # anchored convention drops them). Sensitivity variant: one
+                               # refit WITH the recorded deltas, reported alongside.
+l2_ref_deg: -37.9              # fitted L2_ref (tier2 CONCLUSIONS.md); becomes a fitted
+                               # nuisance: scalar shift on the L2 column, prior σ below.
+l2ref_sigma_deg: 0.3
+steps: all                     # ALL 33 steps × both signs = 66 images (critic M3: every step
+                               # is inside the xtcav23 box [−41.5, −29.5]). Any exclusion must
+                               # cite a pre-registered criterion (off-spot σ 230–265 µm at
+                               # steps 28–31; step 33's 0.4° box margin) — none applied here;
+                               # late steps serve as a residual check instead (D3.4d).
+phase_window_deg: 0.2          # on-shots within ±0.2° of the step's median TCAV phase
+phase_window_widen_deg: 0.3    # fallback when a target's split-half floor exceeds its signal
+phi_ensemble_deg: null         # 3-point forward phase ensemble, enabled ONLY if D0.5 shows
+                               # ν_y contamination survives the ±0.2° subset (e.g. [-0.3, 0.0, 0.3])
+
+# --- V_eff (externally anchored, NOT a free parameter) -----------------------
+cal_scaled: 14.402902846221519 # jitter-regression streak cal, m-screen per m-z equivalent
+                               # (1049.905 µm/deg; summary.json cal_scaled_used)
+voltage_V: calibrate           # fit.calibrate_veff(setup, cal_scaled): V such that the
+                               # AS-BUILT segment's numerically-linearized streak calibration
+                               # (incl. the 0.6 m drift) equals cal_scaled. Expected ≈28 MV.
+veff_sensitivity_frac: 0.10    # pre-registered ±10% refit
+fit_veff: false
+
+# --- loss ---------------------------------------------------------------------
+w_charge_split: 0.1
+w_off: 0.1                     # TCAV-off channel weight (V=0 forward pass vs adjacent-step-
+                               # pooled off targets; retains ~half its width sensitivity under
+                               # model-side-only blur). Provisional; report a 0/0.1/0.3 check.
+lambda: null                   # from D0.4 re-calibration on the 66-image geometry + blur
+                               # (fit scripts refuse to run while null — D0 gating)
+lambda_grid: [1.0e-3, 3.0e-3, 1.0e-2, 3.0e-2, 1.0e-1]  # v3 picked the old
+                               # top edge (1e-2), so the grid is extended upward
+prior: ridge                   # pre-registered companions: student_t (ν=4), TSVD-5
+delta_bound_frac: 0.45
+
+# ν_y: tight prior (λ-scaled ln units). The Stage-C no-prior rationale
+# was kicker-gate-specific and is obsolete; η_y is verified to −1.9% (Stage-C
+# cross-check), so ν_y now represents residual dispersion/magnification only —
+# and a loose ν_y is exactly the degeneracy channel sdelta needs protecting from.
+nu_y_prior_sigma: 0.03
+
+# --- discrete hypotheses --------------------------------------------------------
+# 4 orientation/pairing combos (row order × streak-sign pairing) selected by loss on
+# restart 0; pre-registered ratio: winner/runner-up ≥ 2×, else BOTH carried through
+# the ensemble and reported (critic minor-10).
+orientation_selection_ratio: 2.0
+n_restarts: 8
+
+# The 17 fitted knob-δ dims (kickers eliminated 2026-08-02, notebook §4b)
+fit_knobs:
+  - L1EnergyOffset
+  - L2EnergyOffset
+  - L3EnergyOffset
+  - S1ELkG
+  - S2ELkG
+  - S3ELkG
+  - Q5FFkG
+  - Q4FFkG
+  - Q3FFkG
+  - S1EL_xOffset
+  - S1EL_yOffset
+  - S2EL_xOffset
+  - S2EL_yOffset
+  - S2ER_xOffset
+  - S2ER_yOffset
+  - S1ER_xOffset
+  - S1ER_yOffset
+
+# Prior widths σ_j, PHYSICAL units (same units as sweep_params/setLattice).
+# Carried from Stage C; EVERY entry still TODO-ryan/ops (D0.6).
+sigma_phys:
+  L1EnergyOffset: 0.6e6      # ~0.3% of L1 210 MeV gain  TODO-ryan/ops: klystron stability
+  L2EnergyOffset: 8.0e6      # ~0.2% of L2 4.165 GeV     TODO-ryan/ops
+  L3EnergyOffset: 11.0e6     # ~0.2% of L3 5.5 GeV       TODO-ryan/ops
+  S1ELkG: 10.5               # 0.5% of golden 2089       TODO-ryan/ops: SCP readback accuracy
+  S2ELkG: 19.8               # 0.5% of golden −3954      TODO-ryan/ops
+  S3ELkG: 5.4                # 0.5% of golden −1088      TODO-ryan/ops
+  Q5FFkG: 0.36               # 0.5% of recorded −72.2    TODO-ryan/ops: LGPS BACT accuracy
+  Q4FFkG: 0.41               # 0.5% of recorded −81.2    TODO-ryan/ops
+  Q3FFkG: 0.50               # 0.5% of recorded  99.2    TODO-ryan/ops
+  S1EL_xOffset: 100.0e-6     # mover centering accuracy O(100 µm)  TODO-ryan/ops
+  S1EL_yOffset: 100.0e-6     # TODO-ryan/ops
+  S2EL_xOffset: 100.0e-6     # TODO-ryan/ops
+  S2EL_yOffset: 100.0e-6     # TODO-ryan/ops
+  S2ER_xOffset: 100.0e-6     # TODO-ryan/ops
+  S2ER_yOffset: 100.0e-6     # TODO-ryan/ops
+  S1ER_xOffset: 100.0e-6     # TODO-ryan/ops
+  S1ER_yOffset: 100.0e-6     # TODO-ryan/ops

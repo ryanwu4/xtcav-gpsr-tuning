@@ -1,0 +1,56 @@
+device=cuda  lambda*=0.003  V_eff=27.482 MV
+== D3.1 baselines ==
+  null: img 1.4194
+/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/src/xtcav_gpsr_tuning/fit.py:354: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  tot += float(l)
+  nuisance-only: img 1.4037 nu_y 1.170 l2_shift +0.587 deg
+== D3.2 orientation selection ==
+  flip0_swap0: img 1.2847
+  flip0_swap1: img 1.2331
+device=cuda  lambda*=0.003  V_eff=27.482 MV
+== D3.2 orientation selection ==
+/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/src/xtcav_gpsr_tuning/fit.py:354: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  tot += float(l)
+  flip0_swap0: img 1.2847
+  flip0_swap1: img 1.2332
+  flip1_swap0: img 1.2519
+  flip1_swap1: img 1.2470
+  winner flip0_swap1 (runner-up ratio 1.01; carry_both=True)
+done -> /home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/results/stageD/15673/fit
+device=cuda  lambda*=0.003  V_eff=27.482 MV
+== D3.3 ensemble on ['flip0_swap1', 'flip1_swap1'] ==
+/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/src/xtcav_gpsr_tuning/fit.py:354: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  tot += float(l)
+  flip0_swap1 restart 0: img 0.9283 max|pull| 2.53
+  flip0_swap1 restart 1: img 0.9269 max|pull| 2.50
+  flip0_swap1 restart 2: img 0.9245 max|pull| 2.38
+  flip0_swap1 restart 3: img 0.9237 max|pull| 2.39
+  flip0_swap1 restart 4: img 0.9233 max|pull| 2.36
+  flip0_swap1 restart 5: img 0.9303 max|pull| 2.66
+  flip0_swap1 restart 6: img 0.9259 max|pull| 2.50
+  flip0_swap1 restart 7: img 0.9244 max|pull| 2.43
+  flip1_swap1 restart 0: img 0.8871 max|pull| 0.98
+  flip1_swap1 restart 1: img 0.8856 max|pull| 0.97
+  flip1_swap1 restart 2: img 0.8875 max|pull| 0.97
+  flip1_swap1 restart 3: img 0.8864 max|pull| 0.96
+  flip1_swap1 restart 4: img 0.8859 max|pull| 0.98
+  flip1_swap1 restart 5: img 0.8854 max|pull| 0.95
+  flip1_swap1 restart 6: img 1.3071 max|pull| 0.35
+  flip1_swap1 restart 7: img 1.2392 max|pull| 1.96
+done -> /home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/results/stageD/15673/fit
+device=cuda  lambda*=0.003  V_eff=27.482 MV
+== D3.5 sensitivity variants (on flip0_swap1) ==
+/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/src/xtcav_gpsr_tuning/fit.py:354: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  tot += float(l)
+  student_t: img 0.9030
+  veff_p10: img 0.9288
+  veff_m10: img 0.9261
+  bandwidth x0.7: img 0.8769
+  bandwidth x1.3: img 0.9871
+  w_off=0.0: img 0.9276
+  w_off=0.3: img 0.9220
+done -> /home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/results/stageD/15673/fit

@@ -1,0 +1,11 @@
+orientation flip1_swap1, lambda* 0.01, 33 steps
+/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/src/xtcav_gpsr_tuning/fit.py:512: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  tot += float(l)
+  low   steps 0-16 (n=17): img 0.8481 sdelta 1.086 ex 1.347 max|pull| 1.36
+  deep  steps 17-32 (n=16): img 0.9886 sdelta 1.077 ex 1.406 max|pull| 1.78
+  even  steps 0-32 (n=17): img 1.0267 sdelta 1.090 ex 1.302 max|pull| 1.49
+  odd   steps 1-31 (n=16): img 0.8884 sdelta 1.091 ex 1.297 max|pull| 1.39
+  low vs deep: rms Δpull 0.283  max 0.583  corr +0.910
+  even vs odd: rms Δpull 0.039  max 0.100  corr +0.998
+done -> /home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/results/stageD/15673/fit/consistency.json

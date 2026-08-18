@@ -140,3 +140,69 @@ def charge_split(x: torch.Tensor, charges: torch.Tensor, temperature_m: float = 
     w = charges / charges.sum(dim=-1, keepdim=True)
     hi = (w * s).sum(dim=-1)
     return hi  # fraction of charge on the +x side
+
+
+def image_zlobe_split(img: torch.Tensor) -> torch.Tensor:
+    """Fraction of IMAGE intensity on the +x side of the image x-COM (soft
+    sigmoid, ~1 px temperature). This is THE Stage-D charge-split estimator: it
+    is applied identically to the real target and to the rendered model image,
+    so it is sign-DEPENDENT by construction (the two lobes swap sides with the
+    streak sign). Do not substitute the flow's drive-charge fraction, which is
+    sign-invariant and therefore compares against the witness side on one of
+    the two sign rows (audit 2026-08-07, finding #5)."""
+    nx = img.shape[-1]
+    xs = (torch.arange(nx, dtype=img.dtype, device=img.device)
+          - (nx - 1) / 2.0) * (PIXEL_UM * 1e-6)
+    prof = img.sum(dim=-2)
+    w = prof / prof.sum(dim=-1, keepdim=True).clamp_min(1e-30)
+    com = (w * xs).sum(dim=-1, keepdim=True)
+    sgm = torch.sigmoid((xs - com) / 30e-6)
+    return (w * sgm).sum(dim=-1)
+
+
+# --------------------------------------------------------------------------- #
+# Stage-D image-space anchoring (critic M6): the real 300x160 frame only exists
+# after a COM-anchored crop, so the anchor op is defined ON IMAGES and applied
+# verbatim to both target and model (model renders with anchor='none' first).
+# --------------------------------------------------------------------------- #
+def shift_image(img: torch.Tensor, dy_px: torch.Tensor, dx_px: torch.Tensor) -> torch.Tensor:
+    """Differentiable sub-pixel translation of (..., ny, nx) images by
+    (dy_px, dx_px) pixels (positive = content moves toward +row/+col).
+    Bilinear grid_sample with zero padding; differentiable w.r.t. image AND shift."""
+    orig_shape = img.shape
+    ny, nx = orig_shape[-2], orig_shape[-1]
+    flat = img.reshape(-1, 1, ny, nx)
+    b = flat.shape[0]
+    dy = torch.broadcast_to(torch.as_tensor(dy_px, dtype=img.dtype, device=img.device),
+                            (b,))
+    dx = torch.broadcast_to(torch.as_tensor(dx_px, dtype=img.dtype, device=img.device),
+                            (b,))
+    # normalized sampling offsets: sample at (x - dx), (y - dy)
+    theta = torch.zeros(b, 2, 3, dtype=img.dtype, device=img.device)
+    theta[:, 0, 0] = 1.0
+    theta[:, 1, 1] = 1.0
+    theta[:, 0, 2] = -2.0 * dx / max(nx - 1, 1)
+    theta[:, 1, 2] = -2.0 * dy / max(ny - 1, 1)
+    grid = torch.nn.functional.affine_grid(theta, flat.shape, align_corners=True)
+    out = torch.nn.functional.grid_sample(flat, grid, mode="bilinear",
+                                          padding_mode="zeros", align_corners=True)
+    return out.reshape(orig_shape)
+
+
+def image_com(img: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Pixel COM (row, col) of (..., ny, nx) images (nonnegative images assumed)."""
+    ny, nx = img.shape[-2], img.shape[-1]
+    iy = torch.arange(ny, dtype=img.dtype, device=img.device)
+    ix = torch.arange(nx, dtype=img.dtype, device=img.device)
+    tot = img.sum(dim=(-2, -1)).clamp_min(1e-30)
+    cy = (img.sum(dim=-1) * iy).sum(dim=-1) / tot
+    cx = (img.sum(dim=-2) * ix).sum(dim=-1) / tot
+    return cy, cx
+
+
+def com_center_image(img: torch.Tensor) -> torch.Tensor:
+    """Shift each image so its pixel COM sits at the frame center (sub-pixel,
+    differentiable). THE shared Stage-D anchor op for targets and model alike."""
+    ny, nx = img.shape[-2], img.shape[-1]
+    cy, cx = image_com(img)
+    return shift_image(img, (ny - 1) / 2.0 - cy, (nx - 1) / 2.0 - cx)

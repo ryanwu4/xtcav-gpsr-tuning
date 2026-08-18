@@ -1,0 +1,39 @@
+device=cuda  lambda*=0.003  V_eff=27.482 MV
+== D3.1 baselines ==
+  null: img 1.5196
+/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/src/xtcav_gpsr_tuning/fit.py:455: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  tot += float(l)
+  nuisance-only: img 1.5195 nu_y 1.000 l2_shift +0.000 deg
+== D3.2 orientation selection ==
+  flip0_swap0: img 1.2798
+  flip0_swap1: img 1.2547
+  flip1_swap0: img 1.2822
+  flip1_swap1: img 1.1577
+  winner flip1_swap1 (runner-up ratio 1.08; carry_both=True)
+== D3.3 ensemble on ['flip1_swap1', 'flip0_swap1'] ==
+  flip1_swap1 restart 0: img 1.1579 max|pull| 1.15 sdelta 0.99 ex 1.00 nu_y 1.000
+  flip1_swap1 restart 1: img 0.8896 max|pull| 2.26 sdelta 0.99 ex 1.01 nu_y 1.000
+  flip1_swap1 restart 2: img 0.8763 max|pull| 2.69 sdelta 0.97 ex 1.01 nu_y 1.000
+  flip1_swap1 restart 3: img 0.8744 max|pull| 2.71 sdelta 0.97 ex 1.01 nu_y 1.000
+  flip1_swap1 restart 4: img 0.8761 max|pull| 2.68 sdelta 0.97 ex 1.01 nu_y 1.000
+  flip1_swap1 restart 5: img 0.8727 max|pull| 1.09 sdelta 1.02 ex 1.00 nu_y 1.000
+  flip1_swap1 restart 6: img 1.2675 max|pull| 1.06 sdelta 0.97 ex 1.00 nu_y 1.000
+  flip1_swap1 restart 7: img 0.8708 max|pull| 2.74 sdelta 0.96 ex 1.01 nu_y 1.000
+  flip0_swap1 restart 0: img 1.1895 max|pull| 1.33 sdelta 1.00 ex 1.00 nu_y 1.000
+  flip0_swap1 restart 1: img 0.9237 max|pull| 3.61 sdelta 0.91 ex 1.00 nu_y 1.000
+  flip0_swap1 restart 2: img 0.9247 max|pull| 3.54 sdelta 0.91 ex 1.00 nu_y 1.000
+  flip0_swap1 restart 3: img 0.9207 max|pull| 3.61 sdelta 0.91 ex 1.00 nu_y 1.000
+  flip0_swap1 restart 4: img 1.1887 max|pull| 1.25 sdelta 1.00 ex 1.00 nu_y 1.000
+  flip0_swap1 restart 5: img 1.1907 max|pull| 1.40 sdelta 1.00 ex 1.00 nu_y 1.000
+  flip0_swap1 restart 6: img 1.2494 max|pull| 1.01 sdelta 1.00 ex 1.00 nu_y 1.000
+  flip0_swap1 restart 7: img 1.2551 max|pull| 1.24 sdelta 1.00 ex 1.00 nu_y 1.000
+== D3.5 sensitivity variants (on flip1_swap1) ==
+  student_t: img 1.1610
+  veff_p10: img 1.1600
+  veff_m10: img 1.1588
+  bandwidth x0.7: img 0.9111
+  bandwidth x1.3: img 0.8676
+  w_off=0.0: img 0.8728
+  w_off=0.3: img 0.8917
+done -> /home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/results/stageD/15673/fit

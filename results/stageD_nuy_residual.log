@@ -1,0 +1,9 @@
+/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/src/xtcav_gpsr_tuning/fit.py:300: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  hist.append(float(parts["total"]))
+seed 0: nu_y 0.9158 img 0.0169
+seed 1: nu_y 0.9283 img 0.0159
+seed 2: nu_y 0.9446 img 0.0226
+seed 3: nu_y 0.9625 img 0.0146
+seed 4: nu_y 0.9360 img 0.0220
+median 0.936 spread 0.0466

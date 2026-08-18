@@ -1,0 +1,34 @@
+{
+ "main_hypothesis": "flip1_swap1",
+ "null_img_loss": 1.2023812776835403,
+ "null_img_loss_all_orientations": {
+  "flip0_swap0": 1.5404043725315062,
+  "flip0_swap1": 1.4720967131796208,
+  "flip1_swap0": 1.5641688077964704,
+  "flip1_swap1": 1.2023812776835403
+ },
+ "nuisance_img_loss": 1.183878246983918,
+ "floor_tv_median": 0.11855171686296032,
+ "register_note": {
+  "n_kept": 8
+ },
+ "separation_rms_um": {
+  "+": {
+   "fit": 249.19644795836146,
+   "null": 505.71698328613775
+  },
+  "\u2212": {
+   "fit": 378.8810977405709,
+   "null": 423.1931353676362
+  }
+ },
+ "offspot_um": {
+  "real_sx_median": 152.924119063768,
+  "fit_sx_median": 200.31563320920398,
+  "null_sx_median": 320.39470820041714,
+  "real_sy_median": 776.700871299114,
+  "fit_sy_median": 667.1003582296471,
+  "null_sy_median": 538.012110099712
+ }
+}
+figures -> /home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/results/stageD/15673/figures
