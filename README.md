@@ -25,10 +25,12 @@ arg in `preprocess.py`, and `configs/datagen/xtcav23_{smoke,pilot,full}.yaml`;
 
 ```
 src/xtcav_gpsr_tuning/
-  paths.py      sibling-repo resolution (Cheetah clone, bridge, twobunch-s2e-rl, FACET2-S2E)
-  convert.py    openPMD ParticleGroup <-> cheetah ParticleBeam (t authoritative; READ ITS DOCSTRING)
-  segment.py    spec export (PyTao side) + Cheetah Segment builder (crab_cavity->TDC,
-                PHI0 rad/2pi passthrough, drift_kick_drift pinned)
+  paths.py      sibling-repo resolution (twobunch-s2e-rl, FACET2-S2E)
+  convert.py    re-export of twobunch-s2e-rl xtcav_segment.convert: openPMD ParticleGroup <->
+                cheetah ParticleBeam (t authoritative; READ ITS DOCSTRING)
+  segment.py    re-export of xtcav_segment.segment: spec export (PyTao side) + Cheetah Segment
+                builder (crab_cavity->TDC, PHI0 rad/2pi passthrough, drift_kick_drift pinned)
+  screen.py     re-export of xtcav_segment.screen: differentiable DTOTR KDE screen
 scripts/
   export_segment.py    (bmad-qpad-dev) configured Tao -> configs/segment_<optics>.json
                        + fresh Bmad reference beams (off/plus/phi0+-) in data/bmad_reference_<optics>/
@@ -43,9 +45,10 @@ results/    stageA validation outputs + REPORT.md
 
 Never pip-install anything from here; everything goes through PYTHONPATH.
 
-- **Export** (needs pytao + FACET2_S2E): conda `bmad-qpad-dev`
+- **Export** (needs pytao + FACET2_S2E): conda `bmad-qpad-dev` (no cheetah installed there:
+  add a cheetah 0.8.4 copy, e.g. `twobunch-s2e-rl/.vendor/cheetah084`, to PYTHONPATH)
   ```
-  PYTHONPATH=$PWD/src MPLBACKEND=Agg \
+  PYTHONPATH=$PWD/src:$PWD/../twobunch-s2e-rl/.vendor/cheetah084 MPLBACKEND=Agg \
     /home/rwu4/miniconda3/envs/bmad-qpad-dev/bin/python scripts/export_segment.py --optics baseline
   ```
 - **Validate / fit / tests** (torch stack): conda `slac-rl`
@@ -53,8 +56,12 @@ Never pip-install anything from here; everything goes through PYTHONPATH.
   PYTHONPATH=$PWD/src /home/rwu4/miniconda3/envs/slac-rl/bin/python scripts/validate_segment.py --optics baseline
   /home/rwu4/miniconda3/envs/slac-rl/bin/python -m pytest tests/ -q
   ```
-- Cheetah = the 0.8.3-dev source clone at `prev_work/cheetah_analysis/cheetah`
-  (put on sys.path by `paths.ensure_import_roots()`; both envs work). The
+- Cheetah = released `cheetah-accelerator==0.8.4` (pip-installed in `slac-rl`). The
+  forward model lives in `twobunch-s2e-rl/src/xtcav_segment` (put on sys.path by
+  `paths.ensure_import_roots()`); the 0.8.3-dev clone is no longer used. Stage A
+  re-validated on 0.8.4 bit-identically (twobunch-s2e-rl
+  `scripts/validate_segment_084.py`). Segment specs: `configs/segment_*.json` here are
+  kept byte-identical to `twobunch-s2e-rl/configs/segment/` (`tests/test_reexport.py`). The
   upstream `gpsr` repo is a pattern reference only (its `tracking_method="bmadx"`
   is incompatible with Cheetah 0.8.x).
 
