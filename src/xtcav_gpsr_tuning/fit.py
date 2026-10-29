@@ -60,18 +60,49 @@ class FitSetup:
     # multiplicatively across fits in a process (found 2026-08-07: the v2
     # ensemble's +44% Q0FF was accumulated, not fitted).
     k1_pristine: list | None = None
+    # Stage D2 (CNF bundles). charges: knobs_norm (B, n_knob) -> (q_drive, q_witness)
+    # injected charges [nC], (B,) each — knob-dependent for per_sample tables
+    # (drive_fraction, total charge), constant for the xtcav23 flow. baseline_norm:
+    # (n_knob,) normalized baseline row (u=0.5 everywhere for xtcav23).
+    charges: object = None
+    baseline_norm: torch.Tensor | None = None
+
+    @property
+    def latent_dim(self) -> int:
+        return int(self.flow.hparams.get("beam_latent_dim", 0) or 0)
+
+
+def _load_flow(cfg: dict, device: str):
+    """(flow, norm, baseline dict | None). cfg['cnf_bundle'] loads a twobunch_cnf
+    bundle (Stage D2); otherwise the xtcav23 checkpoint + norm from twobunch-s2e-rl
+    via the frozen legacy class (Stage C/D)."""
+    if cfg.get("cnf_bundle"):
+        import twobunch_cnf
+        m = twobunch_cnf.load_model(cfg["cnf_bundle"], device=device)
+        baseline = {k["name"]: k["baseline"] for k in m.meta["knobs"]}
+        return m.flow, m.norm, baseline
+    from twobunch_s2e_rl.surrogate.model import TwoBunchFlow
+
+    flow = TwoBunchFlow.load_from_checkpoint(
+        str(paths.TWOBUNCH_ROOT / cfg["checkpoint"]), map_location=device)
+    norm = json.loads((paths.TWOBUNCH_ROOT / cfg["norm_json"]).read_text())
+    return flow, norm, None
+
+
+def _charges_fn(norm: dict, device: str):
+    from twobunch_cnf.charges import injected_charges_nC
+
+    lo = torch.tensor(norm["knob_low"], dtype=torch.float64, device=device)
+    hi = torch.tensor(norm["knob_high"], dtype=torch.float64, device=device)
+    return injected_charges_nC(norm, norm["knob_keys"], lo, hi)
 
 
 def load_setup(config_path: str | Path = DEFAULT_CONFIG, device: str = "cpu") -> tuple:
     cfg = yaml.safe_load(Path(config_path).read_text())
-    from twobunch_s2e_rl.surrogate.model import TwoBunchFlow
-
-    flow = TwoBunchFlow.load_from_checkpoint(
-        str(paths.TWOBUNCH_ROOT / cfg["checkpoint"]), map_location=device
-    ).to(device).eval()
+    flow, norm, baseline = _load_flow(cfg, device)
+    flow = flow.to(device).eval()
     for p in flow.parameters():
         p.requires_grad_(False)
-    norm = json.loads((paths.TWOBUNCH_ROOT / cfg["norm_json"]).read_text())
     spec = load_spec(paths.REPO_ROOT / cfg["segment_spec"])
     segment, _ = build_segment_from_spec(spec, dtype=torch.float64,
                                          device=torch.device(device))
@@ -102,9 +133,17 @@ def load_setup(config_path: str | Path = DEFAULT_CONFIG, device: str = "cpu") ->
     bound_norm = torch.tensor(
         [cfg.get("delta_bound_frac", 0.45)] * len(fit_knobs),
         dtype=torch.float64, device=device)
+    if baseline is None:
+        baseline_norm = torch.full((len(keys),), 0.5, dtype=torch.float64, device=device)
+    else:
+        baseline_norm = torch.tensor(
+            [(float(baseline[k]) - l) / (h - l) for k, l, h in
+             zip(keys, norm["knob_low"], norm["knob_high"])],
+            dtype=torch.float64, device=device)
     setup = FitSetup(flow=flow, segment=segment, grid=grid, spec=spec, norm=norm,
                      fit_knobs=fit_knobs, knob_index=idx,
-                     sigma_norm=sigma_norm, bound_norm=bound_norm, device=device)
+                     sigma_norm=sigma_norm, bound_norm=bound_norm, device=device,
+                     charges=_charges_fn(norm, device), baseline_norm=baseline_norm)
     setup.k1_pristine = [element_by_name(segment, n).k1.detach().clone()
                          for n in setup.dtr_names]
     return cfg, setup
@@ -127,6 +166,47 @@ def scale_bunch(cloud: torch.Tensor, log_sdelta: torch.Tensor,
     return m + (cloud - m) * s
 
 
+def shift_rows(img: torch.Tensor, shifts_px: torch.Tensor) -> torch.Tensor:
+    """Shift each row of (..., ny, nx) images along x by shifts_px (..., ny)
+    pixels (positive = content moves to +col), linear interpolation, zero fill.
+    The torch twin of the deployed ``xtcav.apply_row_shift`` (output column c
+    samples input column c - shift); differentiable w.r.t. the image."""
+    nx = img.shape[-1]
+    c = torch.arange(nx, dtype=img.dtype, device=img.device)
+    src = c - shifts_px.to(img).unsqueeze(-1)
+    i0 = torch.floor(src)
+    w = src - i0
+    i0 = i0.long()
+
+    def take(i):
+        valid = (i >= 0) & (i < nx)
+        return torch.gather(img, -1, i.clamp(0, nx - 1)) * valid
+
+    return (1.0 - w) * take(i0) + w * take(i0 + 1)
+
+
+def off_row_shifts(off_imgs: torch.Tensor) -> torch.Tensor:
+    """(B, ny, nx) TCAV-off images -> (B, ny) per-row shifts [px] from the SAME
+    deployed routines the real targets use (``xtcav.fit_row_distortion`` +
+    ``compute_distortion_shifts``, default arguments; NaN -> 0). Computed on a
+    detached copy: the shifts enter the graph as constants, so the gradient
+    through the off image's own distortion is dropped (documented approximation
+    of the row-centering arm)."""
+    from .targets_real import _import_deployed
+
+    xtcav, _ = _import_deployed()
+    out = np.zeros(off_imgs.shape[:-1])
+    for b, im in enumerate(off_imgs.detach().cpu().numpy()):
+        d = xtcav.fit_row_distortion(im)
+        if np.isfinite(d).any():
+            sh = xtcav.compute_distortion_shifts(im, d)["shifts_px"]
+            out[b] = np.where(np.isfinite(sh), sh, 0.0)
+    return torch.as_tensor(out, dtype=off_imgs.dtype, device=off_imgs.device)
+
+
+LATENT_MODES = (None, "mean", "shared", "shared_resid")
+
+
 class ForwardModel(torch.nn.Module):
     """δ, δ_tr, V_eff, ν_y → stack of (steps × signs) unit-sum images + charge split."""
 
@@ -136,7 +216,9 @@ class ForwardModel(torch.nn.Module):
                  image_anchor: bool = False, l2ref_nuisance: bool = False,
                  phi_ensemble: list | None = None,
                  base_off_norm: torch.Tensor | None = None,
-                 fit_sdelta: bool = False, fit_ex: bool = False):
+                 fit_sdelta: bool = False, fit_ex: bool = False,
+                 l1ref_nuisance: bool = False, latent_mode: str | None = None,
+                 resid_tau: float = 0.3, row_center: bool = False):
         """Stage-D extensions (all default-off, Stage-C behavior unchanged):
         image_anchor — render anchor='none' then COM-center the IMAGE (the shared
           Stage-D anchor op; particle-space anchors don't exist on the real side);
@@ -144,15 +226,29 @@ class ForwardModel(torch.nn.Module):
           (tight prior applied in map_loss);
         phi_ensemble — list of TDC phase offsets [deg] to average images over
           (forward-modeled residual jitter);
-        base_off_norm — (W,23) conditioning for the TCAV-off loss channel."""
+        base_off_norm — (W,n_knob) conditioning for the TCAV-off loss channel.
+
+        Stage-D2 extensions (CNF bundles; all default-off):
+        l1ref_nuisance — one fitted scalar shift [deg] on the L1PhaseSet column
+          (the BC11 BLEN feedback re-phases L1 when the injector moves);
+        latent_mode — the beam latent of a beam-latent flow, REQUIRED for one
+          (left unset, sample_bunch would redraw it from the global RNG on every
+          call and the loss would no longer be deterministic in the parameters):
+          'mean' = the prior mean of p(s|knobs) at each step's knobs; 'shared' =
+          one fitted latent per bunch for the whole scan; 'shared_resid' =
+          shared + a per-step residual with prior width resid_tau × the prior σ;
+        row_center — the deployed off-shot row-distortion correction on the
+          MODEL images, from the model's own TCAV-off image at each step (the
+          real targets always carry it, from the real off shots)."""
         super().__init__()
         self.s = setup
-        self.register_buffer("base", base_knobs_norm.to(setup.device))  # (B,23)
+        self.register_buffer("base", base_knobs_norm.to(setup.device))  # (B,n_knob)
         self.n = n_particles
         self.anchor = anchor
         self.phi = phi_deg / 360.0
         self.image_anchor = image_anchor
         self.phi_ensemble = phi_ensemble
+        self.row_center = row_center
         if base_off_norm is not None:
             self.register_buffer("base_off", base_off_norm.to(setup.device))
         else:
@@ -163,6 +259,11 @@ class ForwardModel(torch.nn.Module):
                                   - setup.norm["knob_low"][self._l2_col])
         self.l2_shift_deg = torch.nn.Parameter(
             torch.zeros((), dtype=torch.float64), requires_grad=l2ref_nuisance)
+        self._l1_col = keys.index("L1PhaseSet")
+        self._l1_span_deg = float(setup.norm["knob_high"][self._l1_col]
+                                  - setup.norm["knob_low"][self._l1_col])
+        self.l1_shift_deg = torch.nn.Parameter(
+            torch.zeros((), dtype=torch.float64), requires_grad=l1ref_nuisance)
         g = torch.Generator().manual_seed(seed)
         ld = setup.flow.latent_dim
         self.register_buffer("zd", torch.randn(n_particles, ld, generator=g))
@@ -185,6 +286,28 @@ class ForwardModel(torch.nn.Module):
         self.veff_frac = torch.nn.Parameter(torch.zeros((), dtype=torch.float64),
                                             requires_grad=fit_veff)
 
+        # beam latent (Stage D2)
+        if latent_mode not in LATENT_MODES:
+            raise ValueError(f"latent_mode {latent_mode!r} not in {LATENT_MODES}")
+        dl = setup.latent_dim
+        if dl and latent_mode is None:
+            raise ValueError("beam-latent flow: pass latent_mode explicitly "
+                             "(None would redraw the latent from the global RNG)")
+        if not dl and latent_mode is not None:
+            raise ValueError(f"latent_mode={latent_mode!r} but the flow has no beam latent")
+        self.latent_mode = latent_mode
+        self.resid_tau = float(resid_tau)
+        if latent_mode in ("shared", "shared_resid"):
+            # start at the scan-averaged prior mean, i.e. at the 'mean' arm
+            with torch.no_grad():
+                kb = self.base.to(torch.float32)
+                s0 = torch.stack([setup.flow.latent_prior_params(kb, k)[0].mean(0)
+                                  for k in (0, 1)]).double()
+            self.s_lat = torch.nn.Parameter(s0)                      # (2, dl)
+        if latent_mode == "shared_resid":
+            self.s_resid = torch.nn.Parameter(
+                torch.zeros(2, self.base.shape[0], dl, dtype=torch.float64))
+
         self._tdc = element_by_name(setup.segment, "XTCAVF")
         self._quads = [element_by_name(setup.segment, n) for n in setup.dtr_names]
         # ALWAYS the pristine strengths — never whatever a previous model left
@@ -197,6 +320,9 @@ class ForwardModel(torch.nn.Module):
         norm = setup.norm
         self.q_full = (float(norm["drive_full_charge_nC"]) * 1e-9,
                        float(norm["witness_full_charge_nC"]) * 1e-9)
+        # per_sample tables: T is a fraction of THAT row's injected charge, which
+        # moves with drive_fraction / total charge (twobunch_cnf.charges)
+        self._per_sample = norm.get("transmission") == "per_sample"
         self.E_ref = float(setup.spec["meta"]["ref_energy_eV"])
         # HANDOFF-PLANE CORRECTION (audit 2026-08-07, critical). The xtcav23
         # campaign saves clouds at the XTCAVF element EXIT ("save_beams_at:
@@ -208,7 +334,8 @@ class ForwardModel(torch.nn.Module):
         # entrance; R33·L + R34_exit = R34_entrance closes exactly), R12 only
         # 2.1%, i.e. a y-plane-dominated error. Documented as the intended
         # convention in configs/datagen/xtcav23_pilot.yaml and in the plan, but
-        # never implemented in the forward model until now.
+        # never implemented in the forward model until now. (C_B3 is trained at
+        # the same exit plane, so the same back-drift applies.)
         self.handoff_back_drift_m = float(setup.spec["meta"]["tdc_length_m"])
 
     @property
@@ -223,56 +350,133 @@ class ForwardModel(torch.nn.Module):
             k[:, self._l2_col] = (k[:, self._l2_col]
                                   + (self.l2_shift_deg / self._l2_span_deg
                                      ).to(torch.float32)).clamp(0.0, 1.0)
+        if self.l1_shift_deg.requires_grad or float(self.l1_shift_deg) != 0.0:
+            k[:, self._l1_col] = (k[:, self._l1_col]
+                                  + (self.l1_shift_deg / self._l1_span_deg
+                                     ).to(torch.float32)).clamp(0.0, 1.0)
         return k
 
-    def forward(self, rows: list | None = None) -> tuple[torch.Tensor, torch.Tensor]:
-        """rows: optional step-row indices into base — used by run_fit_chunked
-        to bound the autograd graph (66-image full-batch OOMs at 80 GB)."""
-        s = self.s
+    # ---- beam latent ---------------------------------------------------------
+    def _latent(self, knobs: torch.Tensor, k: int, rows: list | None) -> torch.Tensor | None:
+        """(B, dl) latent for bunch k at these (row-selected) knobs, or None."""
+        mode = self.latent_mode
+        if mode is None:
+            return None
+        if mode == "mean":
+            return self.s.flow.latent_prior_params(knobs, k)[0]
+        s = self.s_lat[k].unsqueeze(0).expand(knobs.shape[0], -1)
+        if mode == "shared_resid":
+            r = self.s_resid[k] if rows is None else self.s_resid[k][rows]
+            s = s + r
+        return s.to(knobs)
+
+    def latent_chi2(self) -> torch.Tensor:
+        """−2 log p(s|knobs) up to constants, in the knob ridge's χ² units (the
+        caller multiplies by λ): for 'shared', the mean over scan steps of
+        Σ_d (s_d − μ_d)²/σ_d² under each step's knob-conditioned prior; for
+        'shared_resid' the same on s + r_i, plus Σ_i Σ_d r_id²/(τ σ_id)² (each
+        residual is its own parameter). Zero for 'mean' / no latent."""
+        z = torch.zeros((), dtype=torch.float64, device=self.base.device)
+        if self.latent_mode not in ("shared", "shared_resid"):
+            return z
         knobs = self.knobs()
-        if rows is not None:
-            knobs = knobs[rows]
+        for k in (0, 1):
+            mp, lp = self.s.flow.latent_prior_params(knobs, k)
+            mp, var = mp.double(), torch.exp(lp.double())
+            s = self._latent(knobs, k, None).double()
+            z = z + ((s - mp) ** 2 / var).sum(-1).mean()
+            if self.latent_mode == "shared_resid":
+                z = z + (self.s_resid[k] ** 2 / (self.resid_tau ** 2 * var)).sum()
+        return z
+
+    def latent_state(self) -> dict:
+        if self.latent_mode not in ("shared", "shared_resid"):
+            return {}
+        with torch.no_grad():
+            knobs = self.knobs()
+            out = {}
+            for k, name in ((0, "drive"), (1, "witness")):
+                mp, lp = self.s.flow.latent_prior_params(knobs, k)
+                s = self._latent(knobs, k, None)
+                pull = ((s - mp) / torch.exp(0.5 * lp)).double()
+                out[name] = {"s": self.s_lat[k].tolist(),
+                             "pull_rms_over_steps": pull.pow(2).mean(0).sqrt().tolist(),
+                             "chi2_mean": float(pull.pow(2).sum(-1).mean())}
+                if self.latent_mode == "shared_resid":
+                    out[name]["resid_rms"] = float(self.s_resid[k].pow(2).mean().sqrt())
+            return out
+
+    # ---- forward ---------------------------------------------------------------
+    def _beam(self, knobs: torch.Tensor, rows: list | None):
+        """flow -> back-drifted cheetah beam at the XTCAVF entrance, plus the
+        per-particle charges (B, n) of each bunch."""
+        s = self.s
         B = knobs.shape[0]
-        drive = s.flow.sample_bunch(knobs, 0, self.n, z=self.zd.to(knobs)).double()
-        witness = s.flow.sample_bunch(knobs, 1, self.n, z=self.zw.to(knobs)).double()
+        kw = [{} if self.latent_mode is None else {"s": self._latent(knobs, k, rows)}
+              for k in (0, 1)]
+        drive = s.flow.sample_bunch(knobs, 0, self.n, z=self.zd.to(knobs), **kw[0]).double()
+        witness = s.flow.sample_bunch(knobs, 1, self.n, z=self.zw.to(knobs), **kw[1]).double()
         drive = scale_bunch(drive, self.log_sdelta, self.log_ex)
         witness = scale_bunch(witness, self.log_sdelta, self.log_ex)
         _, t_d, t_w = s.flow.feasibility(knobs)
         t_d, t_w = t_d.double(), t_w.double()
-
         for i, (q, k1b) in enumerate(zip(self._quads, self._k1_base)):
             q.k1 = k1b * (1.0 + self.dtr[i])
-
-        images, splits = [], []
-        nu_y = torch.exp(self.log_nu_y)
-        qd = (t_d * self.q_full[0] / self.n).unsqueeze(-1).expand(B, self.n)
-        qw = (t_w * self.q_full[1] / self.n).unsqueeze(-1).expand(B, self.n)
+        if self._per_sample:
+            q_d, q_w = s.charges(knobs.double())
+            q_d, q_w = q_d.double() * 1e-9, q_w.double() * 1e-9
+        else:
+            q_d, q_w = self.q_full
+        qd = (t_d * q_d / self.n).unsqueeze(-1).expand(B, self.n)
+        qw = (t_w * q_w / self.n).unsqueeze(-1).expand(B, self.n)
         cloud = torch.cat([drive, witness], dim=1)
         q = torch.cat([qd, qw], dim=1)
         beam = cloud_to_beam(cloud, self.E_ref, q, device=knobs.device)
         beam = back_drift(beam, self.handoff_back_drift_m)  # exit -> entrance
+        return beam, qd, qw
+
+    def _render(self, beam, qd, qw, sign: float, phi_deg: float) -> torch.Tensor:
+        """Track at TDC sign×V, phase phi_deg; render (B, ny, nx) un-anchored when
+        image_anchor (anchoring is applied after any row correction)."""
+        self._tdc.voltage = sign * self.v_nominal * (1.0 + self.veff_frac)
+        self._tdc.phase = torch.tensor(phi_deg / 360.0, dtype=torch.float64,
+                                       device=qd.device)
+        out = self.s.segment.track(beam)
+        nd = self.n
+        return render_two_bunch((out.x[:, :nd], out.y[:, :nd]),
+                                (out.x[:, nd:], out.y[:, nd:]),
+                                qd, qw, self.s.grid,
+                                anchor="none" if self.image_anchor else self.anchor,
+                                y_scale=torch.exp(self.log_nu_y))
+
+    def _anchor(self, img: torch.Tensor) -> torch.Tensor:
+        if not self.image_anchor:
+            return img
+        # the zero-padded shift can push charge off-frame, so restore unit sum
+        # to match the target convention (audit #10)
+        img = com_center_image(img)
+        return img / img.sum(dim=(-2, -1), keepdim=True).clamp_min(1e-30)
+
+    def forward(self, rows: list | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+        """rows: optional step-row indices into base — used by run_fit_chunked
+        to bound the autograd graph (66-image full-batch OOMs at 80 GB)."""
+        knobs = self.knobs()
+        if rows is not None:
+            knobs = knobs[rows]
+        beam, qd, qw = self._beam(knobs, rows)
+        shifts = (off_row_shifts(self._render(beam, qd, qw, 0.0, 0.0))
+                  if self.row_center else None)
         phis = self.phi_ensemble if self.phi_ensemble else [self.phi * 360.0]
-        render_anchor = "none" if self.image_anchor else self.anchor
+        images, splits = [], []
         for sign in (+1.0, -1.0):
             acc = None
             for phi_deg in phis:
-                self._tdc.voltage = sign * self.v_nominal * (1.0 + self.veff_frac)
-                self._tdc.phase = torch.tensor(phi_deg / 360.0, dtype=torch.float64,
-                                               device=knobs.device)
-                out = self.s.segment.track(beam)
-                x, y = out.x, out.y
-                nd = self.n
-                img = render_two_bunch((x[:, :nd], y[:, :nd]),
-                                       (x[:, nd:], y[:, nd:]),
-                                       qd, qw, s.grid, anchor=render_anchor,
-                                       y_scale=nu_y)
-                if self.image_anchor:
-                    # anchor per phi-member THEN average (mirrors per-shot
-                    # anchoring before averaging on the target side); the
-                    # zero-padded shift can push charge off-frame, so restore
-                    # unit sum to match the target convention (audit #10)
-                    img = com_center_image(img)
-                    img = img / img.sum(dim=(-2, -1), keepdim=True).clamp_min(1e-30)
+                img = self._render(beam, qd, qw, sign, phi_deg)
+                if shifts is not None:
+                    img = shift_rows(img, shifts)
+                # anchor per phi-member THEN average (mirrors per-shot
+                # anchoring before averaging on the target side)
+                img = self._anchor(img)
                 acc = img if acc is None else acc + img
             img_mean = acc / len(phis)
             images.append(img_mean)
@@ -288,43 +492,17 @@ class ForwardModel(torch.nn.Module):
         equal base), so resampling the flow for it (forward_off) doubles the
         dominant cost for nothing. Returns (imgs (2,B,ny,nx), splits (2,B),
         off (B,ny,nx))."""
-        s = self.s
         assert self.base_off is not None
         knobs = self.knobs()
         if rows is not None:
             knobs = knobs[rows]
-        B = knobs.shape[0]
-        drive = s.flow.sample_bunch(knobs, 0, self.n, z=self.zd.to(knobs)).double()
-        witness = s.flow.sample_bunch(knobs, 1, self.n, z=self.zw.to(knobs)).double()
-        drive = scale_bunch(drive, self.log_sdelta, self.log_ex)
-        witness = scale_bunch(witness, self.log_sdelta, self.log_ex)
-        _, t_d, t_w = s.flow.feasibility(knobs)
-        t_d, t_w = t_d.double(), t_w.double()
-        for i, (q, k1b) in enumerate(zip(self._quads, self._k1_base)):
-            q.k1 = k1b * (1.0 + self.dtr[i])
-        nu_y = torch.exp(self.log_nu_y)
-        qd = (t_d * self.q_full[0] / self.n).unsqueeze(-1).expand(B, self.n)
-        qw = (t_w * self.q_full[1] / self.n).unsqueeze(-1).expand(B, self.n)
-        cloud = torch.cat([drive, witness], dim=1)
-        q = torch.cat([qd, qw], dim=1)
-        beam = cloud_to_beam(cloud, self.E_ref, q, device=knobs.device)
-        beam = back_drift(beam, self.handoff_back_drift_m)  # exit -> entrance
-        render_anchor = "none" if self.image_anchor else self.anchor
-        nd = self.n
-        outs = []
-        for sign in (+1.0, -1.0, 0.0):
-            self._tdc.voltage = sign * self.v_nominal * (1.0 + self.veff_frac)
-            self._tdc.phase = torch.tensor(self.phi, dtype=torch.float64,
-                                           device=knobs.device)
-            out = self.s.segment.track(beam)
-            img = render_two_bunch((out.x[:, :nd], out.y[:, :nd]),
-                                   (out.x[:, nd:], out.y[:, nd:]),
-                                   qd, qw, s.grid, anchor=render_anchor,
-                                   y_scale=nu_y)
-            if self.image_anchor:
-                img = com_center_image(img)
-                img = img / img.sum(dim=(-2, -1), keepdim=True).clamp_min(1e-30)
-            outs.append(img)
+        beam, qd, qw = self._beam(knobs, rows)
+        raw = [self._render(beam, qd, qw, sign, self.phi * 360.0)
+               for sign in (+1.0, -1.0, 0.0)]
+        if self.row_center:
+            shifts = off_row_shifts(raw[2])
+            raw = [shift_rows(r, shifts) for r in raw]
+        outs = [self._anchor(r) for r in raw]
         # same-estimator, sign-dependent split (audit #5)
         splits = torch.stack([image_zlobe_split(outs[0]), image_zlobe_split(outs[1])])
         return (torch.stack(outs[:2]), splits, outs[2])
@@ -333,37 +511,14 @@ class ForwardModel(torch.nn.Module):
         """TCAV-off loss channel: images at base_off conditioning, V=0.
         Returns (W, ny, nx), COM-centered when image_anchor is set."""
         assert self.base_off is not None, "construct with base_off_norm to use the off channel"
-        s = self.s
         knobs = self.knobs(base=self.base_off)
         if rows is not None:
             knobs = knobs[rows]
-        W = knobs.shape[0]
-        drive = s.flow.sample_bunch(knobs, 0, self.n, z=self.zd.to(knobs)).double()
-        witness = s.flow.sample_bunch(knobs, 1, self.n, z=self.zw.to(knobs)).double()
-        drive = scale_bunch(drive, self.log_sdelta, self.log_ex)
-        witness = scale_bunch(witness, self.log_sdelta, self.log_ex)
-        _, t_d, t_w = s.flow.feasibility(knobs)
-        t_d, t_w = t_d.double(), t_w.double()
-        for i, (qd_, k1b) in enumerate(zip(self._quads, self._k1_base)):
-            qd_.k1 = k1b * (1.0 + self.dtr[i])
-        self._tdc.voltage = torch.zeros((), dtype=torch.float64, device=knobs.device)
-        qd = (t_d * self.q_full[0] / self.n).unsqueeze(-1).expand(W, self.n)
-        qw = (t_w * self.q_full[1] / self.n).unsqueeze(-1).expand(W, self.n)
-        cloud = torch.cat([drive, witness], dim=1)
-        beam = cloud_to_beam(cloud, self.E_ref, torch.cat([qd, qw], dim=1),
-                             device=knobs.device)
-        beam = back_drift(beam, self.handoff_back_drift_m)  # exit -> entrance
-        out = self.s.segment.track(beam)
-        nd = self.n
-        img = render_two_bunch((out.x[:, :nd], out.y[:, :nd]),
-                               (out.x[:, nd:], out.y[:, nd:]),
-                               qd, qw, s.grid,
-                               anchor="none" if self.image_anchor else self.anchor,
-                               y_scale=torch.exp(self.log_nu_y))
-        if self.image_anchor:
-            img = com_center_image(img)
-            img = img / img.sum(dim=(-2, -1), keepdim=True).clamp_min(1e-30)
-        return img
+        beam, qd, qw = self._beam(knobs, rows)
+        img = self._render(beam, qd, qw, 0.0, self.phi * 360.0)
+        if self.row_center:
+            img = shift_rows(img, off_row_shifts(img))
+        return self._anchor(img)
 
 
 def map_loss(model: ForwardModel, targets: torch.Tensor, target_splits: torch.Tensor,
@@ -374,7 +529,8 @@ def map_loss(model: ForwardModel, targets: torch.Tensor, target_splits: torch.Te
              l2ref_sigma_deg: float = 0.3, nu_y_sigma_ln: float | None = None,
              sdelta_sigma_ln: float | None = None,
              ex_sigma_ln: float | None = None,
-             dtr_sigma_frac: float | None = None) -> dict:
+             dtr_sigma_frac: float | None = None,
+             l1ref_sigma_deg: float = 0.5) -> dict:
     imgs, splits = model()
     diff = (imgs - targets).abs()
     if mask is not None:
@@ -393,7 +549,8 @@ def map_loss(model: ForwardModel, targets: torch.Tensor, target_splits: torch.Te
     else:
         raise ValueError(prior)
     l_nuis = _nuisance_prior(model, l2ref_sigma_deg, nu_y_sigma_ln,
-                             sdelta_sigma_ln, ex_sigma_ln, dtr_sigma_frac)
+                             sdelta_sigma_ln, ex_sigma_ln, dtr_sigma_frac,
+                             l1ref_sigma_deg)
     total = l_img + w_q * l_split + lam * (l_prior + l_nuis)
     l_off = torch.zeros((), dtype=imgs.dtype, device=imgs.device)
     if targets_off is not None and w_off > 0:
@@ -431,12 +588,30 @@ def run_fit(model: ForwardModel, targets, target_splits, lam, iters=150, lr=0.03
             "nu_y": float(torch.exp(model.log_nu_y)),
             "sdelta": float(torch.exp(model.log_sdelta)),
             "ex": float(torch.exp(model.log_ex)),
-            "veff": float(model.v_nominal * (1.0 + model.veff_frac))}
+            "veff": float(model.v_nominal * (1.0 + model.veff_frac)),
+            **_stage_d2_state(model)}
+
+
+def _stage_d2_state(model) -> dict:
+    """Stage-D2 result fields: the L1 shift, the latent state, and the
+    box-wall diagnostics of every fitted knob (u_final = its normalized value,
+    min/max over scan rows, after the clamp; tanh_sat = |tanh(raw)| — the
+    fraction of the δ bound in use)."""
+    with torch.no_grad():
+        k = model.knobs()
+        u = k[:, model.s.knob_index]
+        tsat = torch.tanh(model.delta_raw).abs()
+    names = model.s.fit_knobs
+    return {"l1_shift_deg": float(model.l1_shift_deg),
+            "latent": model.latent_state(),
+            "u_final": {n: [float(u[:, i].min()), float(u[:, i].max())]
+                        for i, n in enumerate(names)},
+            "tanh_sat": dict(zip(names, map(float, tsat)))}
 
 
 def _nuisance_prior(model, l2ref_sigma_deg=0.3, nu_y_sigma_ln=None,
                     sdelta_sigma_ln=None, ex_sigma_ln=None,
-                    dtr_sigma_frac=None):
+                    dtr_sigma_frac=None, l1ref_sigma_deg=0.5, latent=True):
     """Nuisance priors in the SAME χ²-style units as the knob ridge; the caller
     multiplies the whole thing by λ (see run_fit_chunked / map_loss).
 
@@ -450,8 +625,13 @@ def _nuisance_prior(model, l2ref_sigma_deg=0.3, nu_y_sigma_ln=None,
     test returned 1.04 for a truth of 2.0. Under λ these σ's mean what they
     should: a deviation of σ costs exactly as much as a knob at 1σ_j."""
     l = torch.zeros((), dtype=torch.float64, device=model.base.device)
-    if model.l2_shift_deg.requires_grad:
-        l = l + (model.l2_shift_deg / l2ref_sigma_deg) ** 2
+    if latent:  # latent=False: the calibration-only terms (ν_y, δ_tr, σ_δ, ε_x)
+        if model.l2_shift_deg.requires_grad:
+            l = l + (model.l2_shift_deg / l2ref_sigma_deg) ** 2
+        if model.l1_shift_deg.requires_grad:
+            l = l + (model.l1_shift_deg / l1ref_sigma_deg) ** 2
+        # beam latent (Stage D2): the model's own p(s|knobs), same χ² units
+        l = l + model.latent_chi2()
     if nu_y_sigma_ln is not None:
         l = l + (model.log_nu_y / nu_y_sigma_ln) ** 2
     if sdelta_sigma_ln is not None and model.log_sdelta.requires_grad:
@@ -472,7 +652,8 @@ def run_fit_chunked(model: ForwardModel, targets, target_splits, lam,
                     mask=None, step_weights=None, targets_off=None, w_off=0.0,
                     prior="ridge", student_nu=4.0, l2ref_sigma_deg=0.3,
                     nu_y_sigma_ln=None, sdelta_sigma_ln=None, ex_sigma_ln=None,
-                    dtr_sigma_frac=None, off_step_weights=None, verbose=False):
+                    dtr_sigma_frac=None, off_step_weights=None, verbose=False,
+                    l1ref_sigma_deg=0.5, lam_cal=None):
     """run_fit with gradient accumulation over step chunks (Stage D: the 66-image
     + off-channel graph OOMs an 80 GB GPU in one backward; per-chunk backwards
     keep peak memory ~ chunk/B of the full graph). Loss identical to map_loss:
@@ -528,9 +709,20 @@ def run_fit_chunked(model: ForwardModel, targets, target_splits, lam,
                        * torch.log1p(pulls ** 2 / student_nu)).sum() * 2.0
         else:
             raise ValueError(prior)
-        l_nuis = _nuisance_prior(model, l2ref_sigma_deg, nu_y_sigma_ln,
-                                 sdelta_sigma_ln, ex_sigma_ln, dtr_sigma_frac)
-        pen = lam * (l_prior + l_nuis)
+        if lam_cal is None:
+            l_nuis = _nuisance_prior(model, l2ref_sigma_deg, nu_y_sigma_ln,
+                                     sdelta_sigma_ln, ex_sigma_ln, dtr_sigma_frac,
+                                     l1ref_sigma_deg)
+            pen = lam * (l_prior + l_nuis)
+        else:
+            # Stage D2 reachability: the weak ridge λ applies to the CNF's own
+            # inputs (knobs, latent, L1/L2 shifts); the measurement-chain
+            # calibration terms (ν_y, δ_tr — no box bound) keep their own λ_cal
+            l_nuis = _nuisance_prior(model, l2ref_sigma_deg, None, sdelta_sigma_ln,
+                                     ex_sigma_ln, None, l1ref_sigma_deg)
+            l_cal = _nuisance_prior(model, 0.0, nu_y_sigma_ln, None, None,
+                                    dtr_sigma_frac, l1ref_sigma_deg, latent=False)
+            pen = lam * (l_prior + l_nuis) + lam_cal * l_cal
         pen.backward()
         tot += float(pen)
         opt.step()
@@ -550,7 +742,8 @@ def run_fit_chunked(model: ForwardModel, targets, target_splits, lam,
             "nu_y": float(torch.exp(model.log_nu_y)),
             "sdelta": float(torch.exp(model.log_sdelta)),
             "ex": float(torch.exp(model.log_ex)),
-            "veff": float(model.v_nominal * (1.0 + model.veff_frac))}
+            "veff": float(model.v_nominal * (1.0 + model.veff_frac)),
+            **_stage_d2_state(model)}
 
 
 def eval_loss_chunked(model, targets, target_splits, mask=None,

@@ -74,11 +74,14 @@ def _u(norm: dict, key: str, phys: float) -> float:
 
 def conditioning(setup: FitSetup, cfg: dict,
                  l1_deltas_deg: np.ndarray | None = None) -> torch.Tensor:
-    """(n_steps, 23) normalized knob rows for the real scan geometry."""
+    """(n_steps, n_knob) normalized knob rows for the real scan geometry: the
+    model's baseline row (u=0.5 everywhere for xtcav23; the bundle baselines for
+    a CNF — golden injector, so drive_fraction sits at 0.75, u=0.643), with the
+    L1 anchor and the per-step L2 overwritten."""
     mc = json.loads(Path(cfg["machine_config"]).read_text())
     scan = np.asarray(mc["L2_scan_vals_deg"], float)
     norm = setup.norm
-    base = torch.full((len(scan), 23), 0.5, dtype=torch.float64)
+    base = setup.baseline_norm.detach().cpu().double().unsqueeze(0).repeat(len(scan), 1)
     l1 = float(cfg["l1_anchor_deg"])
     for i, sv in enumerate(scan):
         l1_i = l1 + (float(l1_deltas_deg[i]) if l1_deltas_deg is not None else 0.0)
