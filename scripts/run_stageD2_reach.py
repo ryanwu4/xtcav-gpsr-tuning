@@ -10,6 +10,7 @@ weak ridge (λ_reach = λ*_D / 100)? Arms (interview 2026-10-29):
   A4  17 linac/FF δ only (injector at golden)    } injector ablations
   A5  17 + the 6 active injector knobs           }
   A6  17 + active 6 + L0B 2                      }
+  A7  17 + drive_fraction only (the charge ratio: is the injector gain just this?)
   X1  the xtcav23 flow refit under the same D2 settings (17 δ, no σ_δ/ε_x,
       + L1 shift, λ_reach, full box): the re-baseline
   W1  A1 on the wide-box fine-tune c_b3w_ema (fit-only model, models/c_b3w_ema;
@@ -88,6 +89,7 @@ _BASE_ARMS = {
     "A4": dict(model="cnf", knobs=LINAC17, latent="mean"),
     "A5": dict(model="cnf", knobs=LINAC17 + ACTIVE6, latent="mean"),
     "A6": dict(model="cnf", knobs=LINAC17 + ACTIVE6 + L0B2, latent="mean"),
+    "A7": dict(model="cnf", knobs=LINAC17 + ["drive_fraction"], latent="mean"),
     "X1": dict(model="xtcav23", knobs=LINAC17, latent=None),
     "W1": dict(model="cnf_wide", knobs=ALL31, latent="mean"),
 }
@@ -227,6 +229,7 @@ def fit_once(arm, tgt, device, seed=0, rng=None, iters=ITERS, lam=None, fit_step
             res["holdout"].update(null_fit=float((pn[:, fitted] * we[:, fitted]).mean()),
                                   null_held=float((pn[:, held] * we[:, held]).mean()))
     res.update(final_img_loss=parts["img"], final_off_loss=parts["off"],
+               final_off_loss_weighted=parts["off_weighted"],
                final_split_loss=parts["split"], per_image_tv=parts["per_image_tv"].tolist(),
                l2_shift_deg=float(m.l2_shift_deg), seed=int(seed), lam=lam, iters=iters,
                total_loss=float(res["loss_history"][-1]), fit_seconds=time.time() - t0)

@@ -908,18 +908,22 @@ def run_fit_chunked(model: ForwardModel, targets, target_splits, lam,
 def eval_loss_chunked(model, targets, target_splits, mask=None,
                       step_weights=None, targets_off=None, w_off=0.0,
                       off_step_weights=None, chunk=8) -> dict:
-    """No-grad evaluation of the chunked-loss components + per-image TVs."""
+    """No-grad evaluation of the chunked-loss components + per-image TVs. 'off' is the
+    plain mean TCAV-off TV (what every Stage D / D2 log reports); 'off_weighted' applies
+    off_step_weights as the fit objective does (None without weights)."""
     B = model.base.shape[0]
     W = model.base_off.shape[0] if (targets_off is not None and w_off > 0) else 0
-    tvs, l_split, l_off = [], 0.0, 0.0
+    tvs, l_split, l_off, l_off_w = [], 0.0, 0.0, 0.0
     combined = W == B
     with torch.no_grad():
         for lo in range(0, B, chunk):
             rows = list(range(lo, min(lo + chunk, B)))
             if combined:
                 imgs, splits, off = model.forward_full(rows=rows)
-                l_off += float((off - targets_off[rows]).abs(
-                    ).sum(dim=(-2, -1)).sum())
+                d_off = (off - targets_off[rows]).abs().sum(dim=(-2, -1))
+                l_off += float(d_off.sum())
+                if off_step_weights is not None:
+                    l_off_w += float((d_off * off_step_weights[rows]).sum())
             else:
                 imgs, splits = model(rows=rows)
             diff = (imgs - targets[:, rows]).abs()
@@ -931,12 +935,15 @@ def eval_loss_chunked(model, targets, target_splits, mask=None,
             for lo in range(0, W, chunk):
                 rows = list(range(lo, min(lo + chunk, W)))
                 off = model.forward_off(rows=rows)
-                l_off += float((off - targets_off[rows]).abs(
-                    ).sum(dim=(-2, -1)).sum())
+                d_off = (off - targets_off[rows]).abs().sum(dim=(-2, -1))
+                l_off += float(d_off.sum())
+                if off_step_weights is not None:
+                    l_off_w += float((d_off * off_step_weights[rows]).sum())
     per_img = torch.cat(tvs, dim=1)  # (2, B)
     weighted = per_img * step_weights.cpu() if step_weights is not None else per_img
     return {"per_image_tv": per_img.numpy(), "img": float(weighted.mean()),
-            "split": l_split / (2 * B), "off": l_off / max(W, 1)}
+            "split": l_split / (2 * B), "off": l_off / max(W, 1),
+            "off_weighted": l_off_w / max(W, 1) if off_step_weights is not None else None}
 
 
 def calibrate_veff(setup: FitSetup, cal_scaled: float,
