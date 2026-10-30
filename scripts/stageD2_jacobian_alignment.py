@@ -83,9 +83,13 @@ def main():
         (up, (ip, op)), (um, (im, om)) = out
         cols[k] = (vec(ip, op) - vec(im, om)) / (up - um)                 # d(weighted img)/du
         print(f"  J[{k}] |col| {float(cols[k].norm()):.3g}", flush=True)
-    # L1 / L2 shift columns [per deg], by FD on the shift parameters
-    for nm, par in (("l1_shift", m.l1_shift_deg), ("l2_shift", m.l2_shift_deg)):
-        v0, hd = float(par), 0.1
+    # L1 / L2 shift columns [per deg] (and the L2 scan gain, when fitted), by FD on the
+    # parameters
+    extra = [("l1_shift", m.l1_shift_deg, 0.1), ("l2_shift", m.l2_shift_deg, 0.1)]
+    if m.l2_gain_m1.requires_grad:
+        extra.append(("l2_gain", m.l2_gain_m1, 0.02))
+    for nm, par, hd in extra:
+        v0 = float(par)
         out = []
         for sgn in (+1, -1):
             with torch.no_grad():
@@ -94,7 +98,7 @@ def main():
         with torch.no_grad():
             par.fill_(v0)
         cols[nm] = (vec(*out[0]) - vec(*out[1])) / (2 * hd)
-        print(f"  J[{nm}] |col| {float(cols[nm].norm()):.3g} per deg", flush=True)
+        print(f"  J[{nm}] |col| {float(cols[nm].norm()):.3g} per unit", flush=True)
     # Stage-D-style registration on prior-scaled coordinates (knobs in sigma_j, shifts in
     # their prior sigma); SVD cut and leverage exactly as identifiability.jacobian_svd
     import yaml
@@ -104,6 +108,8 @@ def main():
             for k in m.s.fit_knobs}
     scale = {k: float(cfg_d2["sigma_phys"][k]) / span[k] for k in m.s.fit_knobs}
     scale.update(l1_shift=float(cfg_d2["l1ref_sigma_deg"]), l2_shift=float(cfg["l2ref_sigma_deg"]))
+    if "l2_gain" in cols:
+        scale["l2_gain"] = float(m.l2_gain_sigma)
     names = list(cols)
     Js = torch.stack([cols[n] * scale[n] for n in names], 1).cpu().numpy()
     U, S, Vt = np.linalg.svd(Js, full_matrices=False)
@@ -118,7 +124,7 @@ def main():
     (OUT.parent / f"register_{a.arm}.json").write_text(json.dumps(register, indent=1))
     print(f"register: kept {register['n_kept']}/{len(names)}; low leverage (<0.05): "
           f"{[n for n, v in register['leverage'].items() if v < 0.05]}", flush=True)
-    for n in [n for n in names if n.endswith("_shift")]:
+    for n in [n for n, _, _ in extra]:
         cols.pop(n)
     report = {"arm": a.arm, "h_u": a.h, "residual_norm2": float(res.norm() ** 2),
               "tv_weighted_now": float(r["final_img_loss"]), "groups": {}}

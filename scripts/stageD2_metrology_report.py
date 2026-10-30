@@ -6,7 +6,8 @@ Inputs (results/stageD2/15673/reach/): restarts <arm><tag>_r<i>.json, split fits
 (stageD2_jacobian_alignment.py at the r0 state); the S2E theft control at the same λ for
 recovery factors (A1_B_theft_lam<λ>.json, truth data/s2e_theft_15673/points.json).
 
-Coordinates: every parameter in its D2 prior σ (knobs δ/σ_j, L1/L2 shifts / their σ), the
+Coordinates: every parameter in its D2 prior σ (knobs δ/σ_j, L1/L2 shifts / their σ, the
+L2 scan gain (g − 1) / 0.25 when fitted), the
 frame the registration's SVD was taken in. Pre-registered decision rule (Stage D): if the
 low-vs-deep difference of the subspace projections exceeds the even-vs-odd control, δ̂ is
 partly absorbing compression-dependent model error rather than measuring the machine.
@@ -33,7 +34,7 @@ def coords(r, names, sig):
     v = []
     for n in names:
         x = (r["l1_shift_deg"] if n == "l1_shift" else r["l2_shift_deg"] if n == "l2_shift"
-             else r["delta_phys"][n])
+             else r["l2_gain"] - 1.0 if n == "l2_gain" else r["delta_phys"][n])
         v.append(x / sig[n])
     return np.array(v)
 
@@ -50,7 +51,8 @@ def main():
     reg = json.loads((OUT / f"register_{base}_r0.json").read_text())
     names, V = reg["param_names"], np.array(reg["kept_directions"])
     sig = {k: float(v) for k, v in cfg["sigma_phys"].items()}
-    sig.update(l1_shift=float(cfg["l1ref_sigma_deg"]), l2_shift=float(reg["prior_scale"]["l2_shift"]))
+    sig.update(l1_shift=float(cfg["l1ref_sigma_deg"]), l2_shift=float(reg["prior_scale"]["l2_shift"]),
+               l2_gain=float(reg["prior_scale"].get("l2_gain", 0.25)))
 
     restarts = []
     for f in sorted((OUT / "reach").glob(f"{base}_r*.json")):
