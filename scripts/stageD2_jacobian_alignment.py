@@ -47,6 +47,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--arm", required=True)
     ap.add_argument("--h", type=float, default=0.02)
+    ap.add_argument("--cut", type=float, default=0.05,
+                    help="Stage D's identifiability cut: keep singular directions >= cut * s_max")
     a = ap.parse_args()
     dev = "cuda"
     d = json.loads((OUT / f"{a.arm}.json").read_text())
@@ -82,6 +84,43 @@ def main():
         (up, (ip, op)), (um, (im, om)) = out
         cols[k] = (vec(ip, op) - vec(im, om)) / (up - um)                 # d(weighted img)/du
         print(f"  J[{k}] |col| {float(cols[k].norm()):.3g}", flush=True)
+    # L1 / L2 shift columns [per deg], by FD on the shift parameters
+    for nm, par in (("l1_shift", m.l1_shift_deg), ("l2_shift", m.l2_shift_deg)):
+        v0, hd = float(par), 0.1
+        out = []
+        for sgn in (+1, -1):
+            with torch.no_grad():
+                par.fill_(v0 + sgn * hd)
+            out.append(stack(m))
+        with torch.no_grad():
+            par.fill_(v0)
+        cols[nm] = (vec(*out[0]) - vec(*out[1])) / (2 * hd)
+        print(f"  J[{nm}] |col| {float(cols[nm].norm()):.3g} per deg", flush=True)
+    # Stage-D-style registration on prior-scaled coordinates (knobs in sigma_j, shifts in
+    # their prior sigma); SVD cut and leverage exactly as identifiability.jacobian_svd
+    import yaml
+    cfg_d2 = yaml.safe_load((REPO / "configs/fit_stageD2_15673.yaml").read_text())
+    keys = m.s.norm["knob_keys"]
+    span = {k: float(m.s.norm["knob_high"][keys.index(k)] - m.s.norm["knob_low"][keys.index(k)])
+            for k in m.s.fit_knobs}
+    scale = {k: float(cfg_d2["sigma_phys"][k]) / span[k] for k in m.s.fit_knobs}
+    scale.update(l1_shift=float(cfg_d2["l1ref_sigma_deg"]), l2_shift=float(cfg["l2ref_sigma_deg"]))
+    names = list(cols)
+    Js = torch.stack([cols[n] * scale[n] for n in names], 1).cpu().numpy()
+    U, S, Vt = np.linalg.svd(Js, full_matrices=False)
+    keep = S >= a.cut * S[0]
+    lev = np.sqrt((Vt[keep] ** 2 * S[keep, None] ** 2).sum(0)); lev = lev / lev.max()
+    register = {"param_names": names, "prior_scale": scale, "singular_values": S.tolist(),
+                "cut": a.cut, "n_kept": int(keep.sum()), "kept_directions": Vt[keep].tolist(),
+                "leverage": dict(zip(names, map(float, lev))),
+                "col_norm_per_prior_sigma": {n: float(np.linalg.norm(Js[:, i]))
+                                             for i, n in enumerate(names)},
+                "state": f"{a.arm} best restart", "note": "weighted (loss) image vector, L2"}
+    (OUT.parent / f"register_{a.arm}.json").write_text(json.dumps(register, indent=1))
+    print(f"register: kept {register['n_kept']}/{len(names)}; low leverage (<0.05): "
+          f"{[n for n, v in register['leverage'].items() if v < 0.05]}", flush=True)
+    for n in [n for n in names if n.endswith("_shift")]:
+        cols.pop(n)
     report = {"arm": a.arm, "h_u": a.h, "residual_norm2": float(res.norm() ** 2),
               "tv_weighted_now": float(r["final_img_loss"]), "groups": {}}
     for g, names in GROUPS.items():

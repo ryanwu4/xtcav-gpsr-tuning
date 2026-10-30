@@ -315,7 +315,8 @@ class ForwardModel(torch.nn.Module):
                  base_off_norm: torch.Tensor | None = None,
                  fit_sdelta: bool = False, fit_ex: bool = False,
                  l1ref_nuisance: bool = False, latent_mode: str | None = None,
-                 resid_tau: float = 0.3, row_center: bool = False):
+                 resid_tau: float = 0.3, row_center: bool = False,
+                 scan_deg: torch.Tensor | None = None, l2_gain_sigma: float = 0.25):
         """Stage-D extensions (all default-off, Stage-C behavior unchanged):
         image_anchor — render anchor='none' then COM-center the IMAGE (the shared
           Stage-D anchor op; particle-space anchors don't exist on the real side);
@@ -336,7 +337,11 @@ class ForwardModel(torch.nn.Module):
           shared + a per-step residual with prior width resid_tau × the prior σ;
         row_center — the deployed off-shot row-distortion correction on the
           MODEL images, from the model's own TCAV-off image at each step (the
-          real targets always carry it, from the real off shots)."""
+          real targets always carry it, from the real off shots);
+        scan_deg — (B,) nominal L2 scan offsets [deg]: when given, a fitted L2
+          scan GAIN g scales them, L2_i = L2_ref + shift + g * scan_i (the machine
+          multiknob moves only the LI12-14 subboosters; the sim moves all of L2),
+          prior (g - 1) ~ N(0, l2_gain_sigma) under λ."""
         super().__init__()
         self.s = setup
         self.register_buffer("base", base_knobs_norm.to(setup.device))  # (B,n_knob)
@@ -361,6 +366,15 @@ class ForwardModel(torch.nn.Module):
                                   - setup.norm["knob_low"][self._l1_col])
         self.l1_shift_deg = torch.nn.Parameter(
             torch.zeros((), dtype=torch.float64), requires_grad=l1ref_nuisance)
+        # L2 scan gain (g - 1), fitted only when the scan offsets are given
+        self.l2_gain_sigma = float(l2_gain_sigma)
+        if scan_deg is not None:
+            self.register_buffer("scan_deg", torch.as_tensor(scan_deg, dtype=torch.float64,
+                                                             device=setup.device))
+        else:
+            self.scan_deg = None
+        self.l2_gain_m1 = torch.nn.Parameter(torch.zeros((), dtype=torch.float64),
+                                             requires_grad=scan_deg is not None)
         g = torch.Generator().manual_seed(seed)
         ld = setup.flow.latent_dim
         self.register_buffer("zd", torch.randn(n_particles, ld, generator=g))
@@ -469,6 +483,10 @@ class ForwardModel(torch.nn.Module):
         if self.l1_shift_deg.requires_grad or float(self.l1_shift_deg) != 0.0:
             k[:, self._l1_col] = (k[:, self._l1_col]
                                   + (self.l1_shift_deg / self._l1_span_deg
+                                     ).to(torch.float32)).clamp(0.0, 1.0)
+        if self.scan_deg is not None:
+            k[:, self._l2_col] = (k[:, self._l2_col]
+                                  + (self.l2_gain_m1 * self.scan_deg / self._l2_span_deg
                                      ).to(torch.float32)).clamp(0.0, 1.0)
         return k
 
@@ -736,6 +754,7 @@ def _stage_d2_state(model) -> dict:
              if float(tsat[i]) > 0.95 or float(u[:, i].min()) <= eps or float(u[:, i].max()) >= 1 - eps]
     walls += [c for c, (a, b) in u_ph.items() if a <= eps or b >= 1 - eps]
     return {"l1_shift_deg": float(model.l1_shift_deg),
+            "l2_gain": 1.0 + float(model.l2_gain_m1),
             "latent": model.latent_state(),
             "u_final": {n: [float(u[:, i].min()), float(u[:, i].max())]
                         for i, n in enumerate(names)},
@@ -765,6 +784,8 @@ def _nuisance_prior(model, l2ref_sigma_deg=0.3, nu_y_sigma_ln=None,
             l = l + (model.l2_shift_deg / l2ref_sigma_deg) ** 2
         if model.l1_shift_deg.requires_grad:
             l = l + (model.l1_shift_deg / l1ref_sigma_deg) ** 2
+        if model.l2_gain_m1.requires_grad:
+            l = l + (model.l2_gain_m1 / model.l2_gain_sigma) ** 2
         # beam latent (Stage D2): the model's own p(s|knobs), same χ² units
         l = l + model.latent_chi2()
     if nu_y_sigma_ln is not None:

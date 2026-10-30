@@ -89,6 +89,19 @@ _BASE_ARMS = {
 }
 ARMS = {f"{a}_{c}": {**spec, **conv} for a, spec in _BASE_ARMS.items()
         for c, conv in CONVENTIONS.items()}
+# Stage-D2 follow-ups from the 2026-04-15 elog (convention B):
+#   veff_scale — V_eff re-anchored to the dedicated ±90 deg TCAV calibration at 23:53
+#     (1219 / 1182 um/deg -> 16.47 um/um) instead of the jitter regression (14.40,
+#     biased low by phase-readback noise; per sign +1132 / -944 um/deg)
+#   l2_gain — fitted L2 scan gain (the multiknob moves only LI12-14)
+CAL_DEDICATED = 0.5 * (1219.0 + 1182.0) / 72.88
+VEFF_DEDICATED = CAL_DEDICATED / 14.402902846221519
+ARMS.update({
+    "A1cal_B": {**ARMS["A1_B"], "veff_scale": VEFF_DEDICATED},
+    "A1g_B": {**ARMS["A1_B"], "l2_gain": True},
+    "A1calg_B": {**ARMS["A1_B"], "veff_scale": VEFF_DEDICATED, "l2_gain": True},
+    "X1cal_B": {**ARMS["X1_B"], "veff_scale": VEFF_DEDICATED},
+})
 TARGET_FILES = {"deployed": None,  # the Stage D targets.npz (config targets_npz)
                 "clean": "results/stageD2/15673/targets_rowref_clean.npz",
                 "none": "results/stageD2/15673/targets_rowref_none.npz"}
@@ -133,7 +146,12 @@ def make_model(arm, device, seed=0, rng=None):
     cfg_d2 = yaml.safe_load(CFG_D2.read_text())
     cfg, setup, base = get_setup(spec["model"], device)
     s = subset_setup(setup, spec["knobs"], cfg_d2)
-    m = ForwardModel(s, base, cfg["voltage_V"], n_particles=int(cfg["n_particles"]),
+    scan = None
+    if spec.get("l2_gain"):
+        mc = json.loads(Path(cfg["machine_config"]).read_text())
+        scan = torch.tensor(mc["L2_scan_vals_deg"], dtype=torch.float64)
+    m = ForwardModel(s, base, cfg["voltage_V"] * float(spec.get("veff_scale", 1.0)),
+                     n_particles=int(cfg["n_particles"]), scan_deg=scan,
                      anchor="none", image_anchor=True, l2ref_nuisance=True,
                      l1ref_nuisance=True, seed=seed, base_off_norm=base,
                      latent_mode=spec["latent"], row_center=spec["row_center"],
@@ -256,6 +274,9 @@ def main():
     ap.add_argument("--tag", default="")
     ap.add_argument("--fit-steps", default="all", choices=["all"] + list(STEP_SETS),
                     help="fit on a step subset; held-out steps are scored separately")
+    ap.add_argument("--lam", type=float, default=None,
+                    help="knob/latent ridge λ (default: the config's lambda_reach); ν_y / δ_tr keep "
+                         "lambda_cal")
     ap.add_argument("--targets-file", default=None,
                     help="targets npz replacing the arm's real targets (e.g. S2E truth targets)")
     args = ap.parse_args()
@@ -284,7 +305,7 @@ def main():
         for s in range(args.start, args.start + args.restarts):
             rng = np.random.default_rng(1000 + s) if s else None  # restart 0 = zero init
             r = fit_once(arm, tgt, device, seed=s, rng=rng, iters=args.iters,
-                         fit_steps=args.fit_steps)
+                         fit_steps=args.fit_steps, lam=args.lam)
             hist.append(r.pop("loss_history"))
             runs.append(r)
             print(f"  {arm} restart {s}: img {r['final_img_loss']:.4f} off {r['final_off_loss']:.4f} "

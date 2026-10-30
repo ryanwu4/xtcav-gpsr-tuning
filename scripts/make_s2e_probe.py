@@ -4,7 +4,9 @@ rendering through the fit's own screen (xtcav_gpsr_tuning.s2e_probe).
 
 A probe POINT is a machine state: injector deltas (12 Impact-T knobs, physical units,
 any size — out-of-box is the point), linac/L0B deltas (physical), and L1 / L2 shifts
-[deg] on top of the 15673 conditioning (L1 = −20° anchor, L2 = −37.9° + scan value).
+[deg] on top of the 15673 conditioning (L1 = −20° anchor, L2 = −37.9° + scan value),
+plus an optional "laser_heater" dict (FACET2-S2E addLHmodulation kwargs; needs the
+stageD2-widebox tracker, sim/bmad.track(laser_heater=...)).
 Every point is tracked at every probe step; rows of one step share a linac_id, hence
 the Tao random seed, across points (common random numbers for the comparison).
 
@@ -63,7 +65,8 @@ def rows_for(points, steps):
             rows.append({"idx": len(rows), "block": "crossed", "beam": "impact",
                          "injector_point": p["tag"], "injector": inj, "knobs": knobs,
                          "linac_id": int(si), "linac_region": "probe", "step": int(si),
-                         "holdout": False})
+                         "holdout": False,
+                         **({"laser_heater": p["laser_heater"]} if p.get("laser_heater") else {})})
     return rows
 
 
