@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stage-D2 phase-1 reachability queue: one worker per GPU pulling jobs from a shared list
-# (results/stageD2/15673/logs/jobs.txt, one job per line: "<name> <run_stageD2_reach.py args>").
+# (results/stageD2/15673/logs/jobs.txt, one job per line: "<name> <script.py> <args>").
 # Append lines to the list at any time; a worker exits when the list is empty.
 set -uo pipefail
 cd /home/rwu4/photoinjector-rl/xtcav-gpsr-tuning
@@ -20,7 +20,7 @@ worker() {
     [ -z "$job" ] && break
     local name=${job%% *} args=${job#* }
     echo "$(date +%T) gpu$g start $name" >> "$LOG/progress.txt"
-    CUDA_VISIBLE_DEVICES=$g PYTHONPATH=$PWD/src $PY -u scripts/run_stageD2_reach.py $args \
+    CUDA_VISIBLE_DEVICES=$g PYTHONPATH=$PWD/src $PY -u $args \
       > "$LOG/$name.log" 2>&1 || echo "$(date +%T) FAILED $name" >> "$LOG/progress.txt"
     echo "$(date +%T) gpu$g done $name" >> "$LOG/progress.txt"
   done

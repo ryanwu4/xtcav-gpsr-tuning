@@ -26,10 +26,11 @@ from run_stageD2_reach import OUT, evaluate, fit_once, get_setup, make_model  # 
 from run_stageD_fit import orient_targets  # noqa: E402
 from xtcav_gpsr_tuning.stage_d import load_targets  # noqa: E402
 
-# injected truth, physical units (a mix of linac, mover and injector directions)
+# injected truth: DELTAS from the baseline, physical units (a mix of linac, mover and
+# injector directions; drive_fraction 0.75 -> 0.71, MTE 400 -> 430 meV)
 TRUTH = {"S2EL_xOffset": 300e-6, "S1EL_yOffset": -300e-6, "L2EnergyOffset": 8e6,
-         "laser_timing_ps": 0.15, "GUNF:theta0_deg": 0.3, "drive_fraction": 0.71,
-         "distgen:start:MTE:value": 430.0}
+         "laser_timing_ps": 0.15, "GUNF:theta0_deg": 0.3, "drive_fraction": -0.04,
+         "distgen:start:MTE:value": 30.0}
 
 
 def truth_model(device, latent_truth):
@@ -40,10 +41,7 @@ def truth_model(device, latent_truth):
         for name, v in TRUTH.items():
             j = keys.index(name)
             i = m.s.fit_knobs.index(name)
-            if name == "drive_fraction":       # absolute value, not a delta
-                u = (v - lo[j]) / (hi[j] - lo[j]) - float(m.base[0, j])
-            else:
-                u = v / (hi[j] - lo[j])
+            u = v / (hi[j] - lo[j])
             b = float((m.s.bound_hi if u >= 0 else m.s.bound_lo)[i])
             m.delta_raw[i] = torch.atanh(torch.tensor(u / b))
         if latent_truth:  # one prior σ away from the scan-averaged prior mean, per dim
@@ -61,6 +59,7 @@ def main():
     cfg, _, _ = get_setup("cnf", device)
     real = orient_targets(load_targets(cfg, device=device), True, True)
     tm, cfg = truth_model(device, args.latent_truth)
+    assert torch.isfinite(tm.delta_raw).all(), "injected truth outside the δ bound"
     with torch.no_grad():
         B = tm.base.shape[0]
         imgs, splits, offs = [], [], []
@@ -77,9 +76,7 @@ def main():
                      - np.array(tm.s.norm["knob_low"])[tm.s.norm["knob_keys"].index(k)])
             for k in TRUTH}
     recov = {}
-    for k, v in TRUTH.items():
-        base_v = 0.75 if k == "drive_fraction" else 0.0
-        truth_d = (v - base_v) if k == "drive_fraction" else v
+    for k, truth_d in TRUTH.items():
         recov[k] = {"truth_delta": truth_d, "fit_delta": r["delta_phys"][k],
                     "ratio": r["delta_phys"][k] / truth_d,
                     "truth_pull": truth_d / float(

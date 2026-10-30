@@ -155,10 +155,29 @@ def evaluate(m, tgt, cfg):
                              w_off=float(cfg.get("w_off", 0.1)), chunk=2 * CHUNK)
 
 
-def fit_once(arm, tgt, device, seed=0, rng=None, iters=ITERS, lam=None):
+STEP_SETS = {"even": lambda i: i % 2 == 0, "odd": lambda i: i % 2 == 1,
+             "low": lambda i: i <= 16, "deep": lambda i: i >= 17}
+
+
+def holdout(tgt, fit_steps):
+    """(fit targets, held-out step indices): the held-out steps' image and off weights
+    are zeroed for the fit (Phase 2 split tests); 'all' returns tgt unchanged."""
+    if fit_steps == "all":
+        return tgt, []
+    B = tgt["weights"].shape[1]
+    keep = torch.tensor([STEP_SETS[fit_steps](i) for i in range(B)], device=tgt["weights"].device)
+    out = dict(tgt)
+    out["weights"] = tgt["weights"] * keep
+    out["off_weights"] = tgt["off_weights"] * keep
+    return out, [i for i in range(B) if not bool(keep[i])]
+
+
+def fit_once(arm, tgt, device, seed=0, rng=None, iters=ITERS, lam=None, fit_steps="all"):
     m, cfg, cfg_d2 = make_model(arm, device, seed=seed, rng=rng)
+    tgt_eval = tgt
+    tgt, held = holdout(tgt, fit_steps)
     lam = float(cfg_d2["lambda_reach"]) if lam is None else lam
-    null = evaluate(m, tgt, cfg) if rng is None else None
+    null = evaluate(m, tgt_eval, cfg) if rng is None else None
     t0 = time.time()
     res = run_fit_chunked(
         m, tgt["images"], tgt["splits"], lam=lam, iters=iters, lr=0.04,
@@ -171,7 +190,18 @@ def fit_once(arm, tgt, device, seed=0, rng=None, iters=ITERS, lam=None):
         off_step_weights=tgt.get("off_weights"),
         l1ref_sigma_deg=float(cfg_d2["l1ref_sigma_deg"]),
         lam_cal=float(cfg_d2["lambda_cal"]))
-    parts = evaluate(m, tgt, cfg)
+    parts = evaluate(m, tgt_eval, cfg)   # all steps, real weights (held-out steps included)
+    if held:
+        pt = parts["per_image_tv"]
+        we = tgt_eval["weights"].cpu().numpy()
+        fitted = [i for i in range(pt.shape[1]) if i not in held]
+        res["holdout"] = {"fit_steps": fit_steps, "held_steps": held,
+                          "img_fit": float((pt[:, fitted] * we[:, fitted]).mean()),
+                          "img_held": float((pt[:, held] * we[:, held]).mean())}
+        if null is not None:
+            pn = null["per_image_tv"]
+            res["holdout"].update(null_fit=float((pn[:, fitted] * we[:, fitted]).mean()),
+                                  null_held=float((pn[:, held] * we[:, held]).mean()))
     res.update(final_img_loss=parts["img"], final_off_loss=parts["off"],
                final_split_loss=parts["split"], per_image_tv=parts["per_image_tv"].tolist(),
                l2_shift_deg=float(m.l2_shift_deg), seed=int(seed), lam=lam, iters=iters,
@@ -224,6 +254,10 @@ def main():
     ap.add_argument("--orient", action="store_true")
     ap.add_argument("--hyp", default=None, help="flipF_swapS; default: orient.json winner")
     ap.add_argument("--tag", default="")
+    ap.add_argument("--fit-steps", default="all", choices=["all"] + list(STEP_SETS),
+                    help="fit on a step subset; held-out steps are scored separately")
+    ap.add_argument("--targets-file", default=None,
+                    help="targets npz replacing the arm's real targets (e.g. S2E truth targets)")
     args = ap.parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     OUT.mkdir(parents=True, exist_ok=True)
@@ -234,7 +268,12 @@ def main():
     hyp = args.hyp or json.loads((OUT / "orient.json").read_text())["winner"]
     fr, sw = hyp == "flip1_swap1" or hyp.startswith("flip1"), hyp.endswith("swap1")
     for arm in args.arms:
-        tgt = orient_targets(load_real(device, ARMS[arm]["targets"]), fr, sw)
+        if args.targets_file:
+            cfg0, _, _ = get_setup("cnf", device)
+            tgt = orient_targets(load_targets({**cfg0, "targets_npz": args.targets_file},
+                                              device=device), fr, sw)
+        else:
+            tgt = orient_targets(load_real(device, ARMS[arm]["targets"]), fr, sw)
         runs, hist = [], []
         prev = OUT / f"{arm}{args.tag}.json"
         if args.start > 0 and prev.exists():
@@ -244,7 +283,8 @@ def main():
             hist = hist[:len(runs)]
         for s in range(args.start, args.start + args.restarts):
             rng = np.random.default_rng(1000 + s) if s else None  # restart 0 = zero init
-            r = fit_once(arm, tgt, device, seed=s, rng=rng, iters=args.iters)
+            r = fit_once(arm, tgt, device, seed=s, rng=rng, iters=args.iters,
+                         fit_steps=args.fit_steps)
             hist.append(r.pop("loss_history"))
             runs.append(r)
             print(f"  {arm} restart {s}: img {r['final_img_loss']:.4f} off {r['final_off_loss']:.4f} "

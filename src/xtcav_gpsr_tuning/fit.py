@@ -818,7 +818,10 @@ def run_fit_chunked(model: ForwardModel, targets, target_splits, lam,
             if step_weights is not None:
                 per_img = per_img * step_weights[:, rows]
             l = per_img.sum() / (2 * B)
-            l = l + w_q * (splits - target_splits[:, rows]).abs().sum() / (2 * B)
+            d_split = (splits - target_splits[:, rows]).abs()
+            if step_weights is not None:  # a zero-weight step (held out / no target) is out
+                d_split = d_split * (step_weights[:, rows] > 0)
+            l = l + w_q * d_split.sum() / (2 * B)
             if combined:
                 d_off = (off - targets_off[rows]).abs().sum(dim=(-2, -1))
                 if off_step_weights is not None:
