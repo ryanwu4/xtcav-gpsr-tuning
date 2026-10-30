@@ -20,7 +20,7 @@ import torch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 sys.path.insert(0, str(REPO / "scripts"))
-from run_stageD2_reach import ARMS, OUT, make_model  # noqa: E402
+from run_stageD2_reach import ARMS, OUT, load_run, make_model  # noqa: E402
 from run_stageD_fit import CONV_TV_MAX  # noqa: E402
 
 RENDER = OUT.parent / "render"
@@ -57,9 +57,7 @@ def main():
             d = json.loads((OUT / f"{name}.json").read_text())
             r = best_restart(d)
             m, _, _ = make_model(d["arm"], device, seed=r["seed"])
-            state = {k: torch.tensor(v, dtype=torch.float64) for k, v in r["state"].items()}
-            missing = m.load_state_dict(state, strict=False)
-            assert not missing.unexpected_keys, missing.unexpected_keys
+            load_run(m, r)
             meta = {"arm": name, "seed": r["seed"], "final_img_loss": r["final_img_loss"]}
         out = render(m)
         np.savez_compressed(RENDER / f"{name}.npz", meta=np.array(json.dumps(meta)), **out)

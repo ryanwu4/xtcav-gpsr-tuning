@@ -236,8 +236,19 @@ def fit_once(arm, tgt, device, seed=0, rng=None, iters=ITERS, lam=None, fit_step
         res["s_resid"] = m.s_resid.detach().cpu().tolist()
     res["state"] = {k: v.detach().cpu().tolist() for k, v in m.state_dict().items()
                     if k in ("delta_raw", "dtr", "log_nu_y", "l2_shift_deg", "l1_shift_deg",
-                             "s_lat", "s_resid")}
+                             "s_lat", "s_resid", "l2_gain_m1")}
     return res
+
+
+def load_run(m, r):
+    """Load a fitted run's parameters into m (make_model of the same arm and seed). Runs
+    written before 2026-10-30 did not keep l2_gain_m1 in 'state'; it comes back from the
+    recorded gain."""
+    state = {k: torch.tensor(v, dtype=torch.float64) for k, v in r["state"].items()}
+    if "l2_gain_m1" not in state and "l2_gain" in r:
+        state["l2_gain_m1"] = torch.tensor(float(r["l2_gain"]) - 1.0, dtype=torch.float64)
+    missing = m.load_state_dict(state, strict=False)
+    assert not missing.unexpected_keys, missing.unexpected_keys
 
 
 def load_real(device, variant="deployed"):

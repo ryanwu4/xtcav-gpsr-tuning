@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 sys.path.insert(0, str(REPO / "scripts"))
 from run_stageD2_reach import (ACTIVE6, ARMS, L0B2, LINAC17, OUT, PASSIVE6,  # noqa: E402
-                               load_real, make_model)
+                               load_real, load_run, make_model)
 from run_stageD_fit import orient_targets  # noqa: E402
 from stageD2_render import best_restart  # noqa: E402
 
@@ -54,8 +54,7 @@ def main():
     d = json.loads((OUT / f"{a.arm}.json").read_text())
     r = best_restart(d)
     m, cfg, _ = make_model(d["arm"], dev, seed=r["seed"])
-    m.load_state_dict({k: torch.tensor(v, dtype=torch.float64) for k, v in r["state"].items()},
-                      strict=False)
+    load_run(m, r)
     real = orient_targets(load_real(dev, ARMS[d["arm"]]["targets"]), True, True)
     w = real["weights"].double()                                          # (2, B)
     w_off = float(cfg.get("w_off", 0.1)) * real["off_weights"].double()   # (B,)
