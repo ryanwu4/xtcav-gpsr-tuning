@@ -6,7 +6,10 @@ A probe POINT is a machine state: injector deltas (12 Impact-T knobs, physical u
 any size — out-of-box is the point), linac/L0B deltas (physical), and L1 / L2 shifts
 [deg] on top of the 15673 conditioning (L1 = −20° anchor, L2 = −37.9° + scan value),
 plus an optional "laser_heater" dict (FACET2-S2E addLHmodulation kwargs; needs the
-stageD2-widebox tracker, sim/bmad.track(laser_heater=...)).
+stageD2-widebox tracker, sim/bmad.track(laser_heater=...)). "l2_shift_by_step" {step: deg}
+overrides l2_shift_deg per step. "l2_machine" {theta0_deg, phi11_deg} scans L2 the way the
+machine's multiknob does (sim/bmad.apply_l2_machine): the lattice sits at the scan centre and
+the tracker rotates LI12-14 by this step's offset, LI11 fixed, 14-4/14-6 holding the energy.
 Every point is tracked at every probe step; rows of one step share a linac_id, hence
 the Tao random seed, across points (common random numbers for the comparison).
 
@@ -32,6 +35,7 @@ MC = json.loads(Path("/home/rwu4/photoinjector-rl/XTCAV_analysis/sim2real/result
                      "tier1_sim_scans/E300_15673/machine_config.json").read_text())
 L1_ANCHOR, L2_REF = -20.0, -37.9
 STEPS = [2, 10, 16, 26]          # scan +0.5, +2.5, +4.0, +6.5 deg (0-based target rows)
+MID = 16                         # scan centre (+4.0 deg) for machine-like L2 scans
 
 
 def config(name, out, n_particles, seed):
@@ -61,12 +65,19 @@ def rows_for(points, steps):
             inj = {k: golden[k] + float(p.get("injector", {}).get(k, 0.0)) for k in INJECTOR_KEYS}
             knobs = {k: float(lbase[k]) + float(p.get("linac", {}).get(k, 0.0)) for k in lkeys}
             knobs["L1PhaseSet"] = L1_ANCHOR + float(p.get("l1_shift_deg", 0.0))
-            knobs["L2PhaseSet"] = L2_REF + float(p.get("l2_shift_deg", 0.0)) + float(scan[si])
+            l2_shift = float(p.get("l2_shift_by_step", {}).get(str(si), p.get("l2_shift_deg", 0.0)))
+            knobs["L2PhaseSet"] = L2_REF + l2_shift + float(scan[si])
+            extra = {}
+            if p.get("l2_machine"):
+                # machine-like scan: the lattice sits at the scan centre, the tracker re-phases L2
+                knobs["L2PhaseSet"] = L2_REF + l2_shift + float(scan[MID])
+                extra["l2_machine"] = {**p["l2_machine"], "delta_deg": float(scan[si] - scan[MID])}
+            if p.get("laser_heater"):
+                extra["laser_heater"] = p["laser_heater"]
             rows.append({"idx": len(rows), "block": "crossed", "beam": "impact",
                          "injector_point": p["tag"], "injector": inj, "knobs": knobs,
                          "linac_id": int(si), "linac_region": "probe", "step": int(si),
-                         "holdout": False,
-                         **({"laser_heater": p["laser_heater"]} if p.get("laser_heater") else {})})
+                         "holdout": False, **extra})
     return rows
 
 

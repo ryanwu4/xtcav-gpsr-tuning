@@ -7,7 +7,7 @@ flip1_swap1 orient_targets maps them back to the model frame exactly. Steps with
 row get zero images and NaN floors -> zero step weight (excluded from the fit). Floors of the
 probed steps = the real targets' floors (the same noise weighting as the real fit).
 
-  python scripts/build_s2e_targets.py --probe s2e_theft_15673 --conv B
+  python scripts/build_s2e_targets.py --probe s2e_theft_15673 --conv B [--point TAG]
 """
 
 import argparse
@@ -31,6 +31,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--probe", required=True)
     ap.add_argument("--conv", default="B")
+    ap.add_argument("--point", default=None, help="probe point tag (probes with several points)")
     a = ap.parse_args()
     pdir = REPO / "data" / a.probe
     real = np.load(REPO / REAL[a.conv])
@@ -38,6 +39,8 @@ def main():
     imgs = np.zeros((S, 2, NY, NX)); off = np.zeros((S, NY, NX))
     floors = np.full((S, 2), np.nan); off_floors = np.full(S, np.nan)
     for r in json.loads((pdir / "manifest.json").read_text()):
+        if a.point and r["injector_point"] != a.point:
+            continue
         f = pdir / f"render_{a.conv}_{r['idx']:05d}.npz"
         if not f.exists():
             continue
@@ -50,9 +53,11 @@ def main():
     out = {k: real[k] for k in ("mask", "steps", "scan_vals_deg")}
     out.update(images=imgs, off_images=off, splits=splits, floors_tv=floors,
                off_floors_tv=off_floors, n_shots=np.isfinite(floors).astype(int),
-               provenance=np.array(json.dumps({"source": f"S2E probe {a.probe}", "conv": a.conv,
+               provenance=np.array(json.dumps({"source": f"S2E probe {a.probe}", "point": a.point,
+                                               "conv": a.conv,
                                                "frame": "canonical (flip rows, swap signs)"})))
-    path = REPO / "results/stageD2/15673" / f"targets_s2e_{a.probe}_{a.conv}.npz"
+    stem = a.probe + (f"_{a.point}" if a.point else "")
+    path = REPO / "results/stageD2/15673" / f"targets_s2e_{stem}_{a.conv}.npz"
     np.savez_compressed(path, **out)
     print(path, "steps with targets:", int(np.isfinite(floors[:, 0]).sum()))
 
