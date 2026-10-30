@@ -66,6 +66,9 @@ class FitSetup:
     # (n_knob,) normalized baseline row (u=0.5 everywhere for xtcav23).
     charges: object = None
     baseline_norm: torch.Tensor | None = None
+    # optional asymmetric δ bounds (normalized units; ForwardModel.delta_norm)
+    bound_lo: torch.Tensor | None = None
+    bound_hi: torch.Tensor | None = None
 
     @property
     def latent_dim(self) -> int:
@@ -185,23 +188,117 @@ def shift_rows(img: torch.Tensor, shifts_px: torch.Tensor) -> torch.Tensor:
     return (1.0 - w) * take(i0) + w * take(i0 + 1)
 
 
+def _row_fits(im: np.ndarray, an, min_signal_frac: float = 0.005):
+    """``xtcav.fit_row_distortion`` (default arguments) re-implemented line for line,
+    also returning each fitted row's full Gaussian parameters (x0, I0, sigma, y0) for
+    the implicit gradient. Returns (x0 per row with NaN = no fit, {row: popt})."""
+    H, W = im.shape
+    x_pix = np.arange(W, dtype=float)
+    cen = np.full(H, np.nan)
+    popts = {}
+    thr = float(min_signal_frac) * float(np.sum(im)) if np.sum(im) > 0 else 0.0
+    for iy in range(H):
+        line = im[iy, :].astype(float)
+        if not (float(np.sum(line)) > thr):
+            continue
+        try:
+            p0 = (float(np.argmax(line)), float(np.max(line)), float(W / 10.0),
+                  float(np.median(line)))
+            _, popt = an.fit_gaussian(x_pix, line, p0=p0)
+            x0 = float(popt[0])
+        except Exception:
+            continue
+        if 0 < x0 < W:
+            cen[iy] = x0
+            popts[iy] = popt
+    return cen, popts
+
+
+def _fit_sensitivity(popts: dict, lines: torch.Tensor) -> torch.Tensor:
+    """(R, nx) d x0 / d lineout of the least-squares Gaussian fit at its optimum, by
+    the implicit function theorem: dθ*/dy = (JᵀJ + Σ_i r_i ∇²f_i)⁻¹ Jᵀ (r = f − y),
+    first row. lines: (R, nx) the fitted lineouts (rows of popts, in order)."""
+    from torch.func import hessian, jacrev, vmap
+
+    x = torch.arange(lines.shape[-1], dtype=torch.float64, device=lines.device)
+    th = torch.as_tensor(np.stack(list(popts.values())), dtype=torch.float64,
+                         device=lines.device)
+
+    def f(t, x):
+        return t[1] * torch.exp(-0.5 * ((x - t[0]) / t[2]) ** 2) + t[3]
+
+    def g(t, x, r):
+        return (r * f(t, x)).sum()
+
+    J = vmap(jacrev(f), in_dims=(0, None))(th, x)                     # (R, nx, 4)
+    r = vmap(f, in_dims=(0, None))(th, x) - lines.double()           # (R, nx)
+    A = J.transpose(1, 2) @ J + vmap(hessian(g), in_dims=(0, None, 0))(th, x, r)
+    return torch.linalg.solve(A, J.transpose(1, 2))[:, 0, :]          # (R, nx)
+
+
+def _interp_matrix(finite: np.ndarray) -> np.ndarray:
+    """(H, H) A with shift = -(A @ x0) + const reproducing compute_distortion_shifts'
+    np.interp fill (linear between fitted rows, nearest outside)."""
+    H = finite.size
+    A = np.zeros((H, H))
+    idx = np.where(finite)[0]
+    for r in range(H):
+        if finite[r]:
+            A[r, r] = 1.0
+        elif r < idx[0]:
+            A[r, idx[0]] = 1.0
+        elif r > idx[-1]:
+            A[r, idx[-1]] = 1.0
+        else:
+            j1 = idx[np.searchsorted(idx, r)]
+            j0 = idx[np.searchsorted(idx, r) - 1]
+            A[r, j0], A[r, j1] = (j1 - r) / (j1 - j0), (r - j0) / (j1 - j0)
+    return A
+
+
 def off_row_shifts(off_imgs: torch.Tensor) -> torch.Tensor:
     """(B, ny, nx) TCAV-off images -> (B, ny) per-row shifts [px] from the SAME
     deployed routines the real targets use (``xtcav.fit_row_distortion`` +
-    ``compute_distortion_shifts``, default arguments; NaN -> 0). Computed on a
-    detached copy: the shifts enter the graph as constants, so the gradient
-    through the off image's own distortion is dropped (documented approximation
-    of the row-centering arm)."""
+    ``compute_distortion_shifts``, default arguments; NaN -> 0).
+
+    The VALUE is exactly the deployed shift. The GRADIENT is the deployed op's own
+    first-order response: each fitted row's Gaussian centre is differentiated
+    implicitly (_fit_sensitivity), the unfitted rows follow through the same
+    linear interpolation (_interp_matrix), and shift = -(x0 - ref) + const
+    (projection-peak reference and ROI offset are piecewise constant). Detaching
+    the shifts entirely (the first version) dropped a first-order term — the
+    off-image drive-witness offset the correction erases moves with the movers —
+    and gave e.g. the wrong sign for S2EL_xOffset vs central finite differences
+    (port review 2026-10-29)."""
     from .targets_real import _import_deployed
 
     xtcav, _ = _import_deployed()
-    out = np.zeros(off_imgs.shape[:-1])
-    for b, im in enumerate(off_imgs.detach().cpu().numpy()):
-        d = xtcav.fit_row_distortion(im)
-        if np.isfinite(d).any():
-            sh = xtcav.compute_distortion_shifts(im, d)["shifts_px"]
-            out[b] = np.where(np.isfinite(sh), sh, 0.0)
-    return torch.as_tensor(out, dtype=off_imgs.dtype, device=off_imgs.device)
+    import analysis as an
+
+    arr = off_imgs.detach().cpu().numpy()
+    out = np.zeros(arr.shape[:-1])
+    terms = []
+    for b, im in enumerate(arr):
+        d, popts = _row_fits(im, an)
+        if not np.isfinite(d).any():
+            continue
+        sh = xtcav.compute_distortion_shifts(im, d)["shifts_px"]
+        out[b] = np.where(np.isfinite(sh), sh, 0.0)
+        terms.append((b, d, popts))
+    val = torch.as_tensor(out, dtype=off_imgs.dtype, device=off_imgs.device)
+    if not off_imgs.requires_grad or not terms:
+        return val
+    st = torch.zeros_like(val)
+    for b, d, popts in terms:
+        rows = list(popts)
+        lines = off_imgs[b, rows]
+        w = _fit_sensitivity(popts, lines.detach()).to(off_imgs.dtype)   # (R, nx)
+        x0_lin = (w * lines).sum(-1)                                      # value-free, grad = w
+        A = torch.as_tensor(_interp_matrix(np.isfinite(d))[:, rows], dtype=off_imgs.dtype,
+                            device=off_imgs.device)                      # (H, R)
+        st = st.index_add(0, torch.tensor([b], device=off_imgs.device),
+                          (-(A @ (x0_lin - x0_lin.detach()))).unsqueeze(0))
+    return val + st
 
 
 LATENT_MODES = (None, "mean", "shared", "shared_resid")
@@ -298,14 +395,26 @@ class ForwardModel(torch.nn.Module):
         self.latent_mode = latent_mode
         self.resid_tau = float(resid_tau)
         if latent_mode in ("shared", "shared_resid"):
-            # start at the scan-averaged prior mean, i.e. at the 'mean' arm
+            # Parameterized in PRIOR-σ units about the scan-averaged prior mean:
+            # s = s0 + σ̄ ⊙ s_lat, with s0 / σ̄ the prior mean / σ averaged over the
+            # scan at δ = 0 (fixed buffers). The witness prior σ is ~0.04-0.07, so
+            # an absolute-units parameter moved ~1σ per Adam step at lr 0.04 and
+            # restart jitter of 0.3 was 2-5σ (port review). s_lat = 0 starts at
+            # the scan-averaged prior mean (not the 'mean' arm, which follows each
+            # step's own prior mean).
             with torch.no_grad():
                 kb = self.base.to(torch.float32)
-                s0 = torch.stack([setup.flow.latent_prior_params(kb, k)[0].mean(0)
-                                  for k in (0, 1)]).double()
-            self.s_lat = torch.nn.Parameter(s0)                      # (2, dl)
+                pp = [setup.flow.latent_prior_params(kb, k) for k in (0, 1)]
+                s0 = torch.stack([mp.mean(0) for mp, _ in pp]).double()
+                sig = torch.stack([torch.exp(0.5 * lp).mean(0) for _, lp in pp]).double()
+            self.register_buffer("s0", s0)                           # (2, dl)
+            self.register_buffer("s_sig", sig)                       # (2, dl)
+            self.s_lat = torch.nn.Parameter(torch.zeros_like(s0))   # (2, dl), σ units
         if latent_mode == "shared_resid":
-            self.s_resid = torch.nn.Parameter(
+            if base_off_norm is not None and not torch.equal(base_off_norm, base_knobs_norm):
+                # forward_off indexes the residuals with base_off rows (port review #7)
+                raise ValueError("shared_resid needs base_off == base")
+            self.s_resid = torch.nn.Parameter(                       # σ units
                 torch.zeros(2, self.base.shape[0], dl, dtype=torch.float64))
 
         self._tdc = element_by_name(setup.segment, "XTCAVF")
@@ -340,7 +449,14 @@ class ForwardModel(torch.nn.Module):
 
     @property
     def delta_norm(self) -> torch.Tensor:
-        return self.s.bound_norm * torch.tanh(self.delta_raw)
+        t = torch.tanh(self.delta_raw)
+        lo = getattr(self.s, "bound_lo", None)
+        if lo is None:  # symmetric bound (Stage C/D)
+            return self.s.bound_norm * t
+        # Stage D2: per-knob [-lo, +hi] so u = base + δ spans exactly the box
+        # (drive_fraction's baseline is u=0.643; a symmetric bound clamped at u=1
+        # with zero gradient and never reached its lower edge — port review #4)
+        return torch.where(t >= 0, t * self.s.bound_hi, t * lo)
 
     def knobs(self, base: torch.Tensor | None = None) -> torch.Tensor:
         k = (self.base if base is None else base).clone().to(torch.float32)
@@ -364,18 +480,20 @@ class ForwardModel(torch.nn.Module):
             return None
         if mode == "mean":
             return self.s.flow.latent_prior_params(knobs, k)[0]
-        s = self.s_lat[k].unsqueeze(0).expand(knobs.shape[0], -1)
+        s = (self.s0[k] + self.s_sig[k] * self.s_lat[k]).unsqueeze(0).expand(knobs.shape[0], -1)
         if mode == "shared_resid":
             r = self.s_resid[k] if rows is None else self.s_resid[k][rows]
-            s = s + r
+            s = s + self.s_sig[k] * r
         return s.to(knobs)
 
     def latent_chi2(self) -> torch.Tensor:
-        """−2 log p(s|knobs) up to constants, in the knob ridge's χ² units (the
+        """−2 log p(s|knobs) up to a constant, in the knob ridge's χ² units (the
         caller multiplies by λ): for 'shared', the mean over scan steps of
-        Σ_d (s_d − μ_d)²/σ_d² under each step's knob-conditioned prior; for
-        'shared_resid' the same on s + r_i, plus Σ_i Σ_d r_id²/(τ σ_id)² (each
-        residual is its own parameter). Zero for 'mean' / no latent."""
+        Σ_d [(s_d − μ_d)²/σ_d² + log σ_d²] under each step's knob-conditioned
+        prior (the log-variance term depends on the knobs, so it stays — port
+        review #5); for 'shared_resid' the same on s + r_i, plus
+        Σ_i Σ_d (σ̄ r_id)²/(τ σ_id)² (each residual is its own parameter).
+        Zero for 'mean' / no latent."""
         z = torch.zeros((), dtype=torch.float64, device=self.base.device)
         if self.latent_mode not in ("shared", "shared_resid"):
             return z
@@ -384,9 +502,10 @@ class ForwardModel(torch.nn.Module):
             mp, lp = self.s.flow.latent_prior_params(knobs, k)
             mp, var = mp.double(), torch.exp(lp.double())
             s = self._latent(knobs, k, None).double()
-            z = z + ((s - mp) ** 2 / var).sum(-1).mean()
+            z = z + ((s - mp) ** 2 / var + lp.double()).sum(-1).mean()
             if self.latent_mode == "shared_resid":
-                z = z + (self.s_resid[k] ** 2 / (self.resid_tau ** 2 * var)).sum()
+                r = self.s_sig[k] * self.s_resid[k]
+                z = z + (r ** 2 / (self.resid_tau ** 2 * var)).sum()
         return z
 
     def latent_state(self) -> dict:
@@ -399,11 +518,12 @@ class ForwardModel(torch.nn.Module):
                 mp, lp = self.s.flow.latent_prior_params(knobs, k)
                 s = self._latent(knobs, k, None)
                 pull = ((s - mp) / torch.exp(0.5 * lp)).double()
-                out[name] = {"s": self.s_lat[k].tolist(),
+                out[name] = {"s": (self.s0[k] + self.s_sig[k] * self.s_lat[k]).tolist(),
+                             "s_lat_sigma_units": self.s_lat[k].tolist(),
                              "pull_rms_over_steps": pull.pow(2).mean(0).sqrt().tolist(),
                              "chi2_mean": float(pull.pow(2).sum(-1).mean())}
                 if self.latent_mode == "shared_resid":
-                    out[name]["resid_rms"] = float(self.s_resid[k].pow(2).mean().sqrt())
+                    out[name]["resid_rms_sigma_units"] = float(self.s_resid[k].pow(2).mean().sqrt())
             return out
 
     # ---- forward ---------------------------------------------------------------
@@ -530,7 +650,7 @@ def map_loss(model: ForwardModel, targets: torch.Tensor, target_splits: torch.Te
              sdelta_sigma_ln: float | None = None,
              ex_sigma_ln: float | None = None,
              dtr_sigma_frac: float | None = None,
-             l1ref_sigma_deg: float = 0.5) -> dict:
+             l1ref_sigma_deg: float = 0.5, lam_cal: float | None = None) -> dict:
     imgs, splits = model()
     diff = (imgs - targets).abs()
     if mask is not None:
@@ -548,10 +668,17 @@ def map_loss(model: ForwardModel, targets: torch.Tensor, target_splits: torch.Te
                    * torch.log1p(pulls ** 2 / student_nu)).sum() * 2.0
     else:
         raise ValueError(prior)
-    l_nuis = _nuisance_prior(model, l2ref_sigma_deg, nu_y_sigma_ln,
-                             sdelta_sigma_ln, ex_sigma_ln, dtr_sigma_frac,
-                             l1ref_sigma_deg)
-    total = l_img + w_q * l_split + lam * (l_prior + l_nuis)
+    if lam_cal is None:
+        l_nuis = _nuisance_prior(model, l2ref_sigma_deg, nu_y_sigma_ln,
+                                 sdelta_sigma_ln, ex_sigma_ln, dtr_sigma_frac,
+                                 l1ref_sigma_deg)
+        pen = lam * (l_prior + l_nuis)
+    else:  # see run_fit_chunked
+        pen = lam * (l_prior + _nuisance_prior(model, l2ref_sigma_deg, None, sdelta_sigma_ln,
+                                               ex_sigma_ln, None, l1ref_sigma_deg))
+        pen = pen + lam_cal * _nuisance_prior(model, 0.0, nu_y_sigma_ln, None, None,
+                                              dtr_sigma_frac, l1ref_sigma_deg, latent=False)
+    total = l_img + w_q * l_split + pen
     l_off = torch.zeros((), dtype=imgs.dtype, device=imgs.device)
     if targets_off is not None and w_off > 0:
         off = model.forward_off()
@@ -602,11 +729,19 @@ def _stage_d2_state(model) -> dict:
         u = k[:, model.s.knob_index]
         tsat = torch.tanh(model.delta_raw).abs()
     names = model.s.fit_knobs
+    u_ph = {c: [float(k[:, j].min()), float(k[:, j].max())]
+            for c, j in (("L1PhaseSet", model._l1_col), ("L2PhaseSet", model._l2_col))}
+    eps = 5e-3
+    walls = [n for i, n in enumerate(names)
+             if float(tsat[i]) > 0.95 or float(u[:, i].min()) <= eps or float(u[:, i].max()) >= 1 - eps]
+    walls += [c for c, (a, b) in u_ph.items() if a <= eps or b >= 1 - eps]
     return {"l1_shift_deg": float(model.l1_shift_deg),
             "latent": model.latent_state(),
             "u_final": {n: [float(u[:, i].min()), float(u[:, i].max())]
                         for i, n in enumerate(names)},
-            "tanh_sat": dict(zip(names, map(float, tsat)))}
+            "u_phases": u_ph,
+            "tanh_sat": dict(zip(names, map(float, tsat))),
+            "walls": walls}
 
 
 def _nuisance_prior(model, l2ref_sigma_deg=0.3, nu_y_sigma_ln=None,

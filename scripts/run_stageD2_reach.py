@@ -4,28 +4,36 @@ How close can the 37-knob CNF get to the real images when every knob, the beam
 latent and the calibration nuisances are bounded only by the training box and a
 weak ridge (λ_reach = λ*_D / 100)? Arms (interview 2026-10-29):
 
-  A1_all_mean      17 linac/FF δ + 14 injector δ, latent at the prior mean
-  A2_all_shared    A1 + one fitted latent per bunch, shared by the scan
-  A3_all_resid     A2 + a per-step latent residual (prior 0.3 × the prior σ)
-  A4_linac_mean    17 linac/FF δ only (the injector at golden): injector ablation
-  A5_active6_mean  17 + the 6 active injector knobs
-  A6_actL0B_mean   17 + active 6 + L0B 2
-  A7_all_mean_rc   A1 with the off-shot row correction on the MODEL images too
-  X1_xtcav23       the xtcav23 flow refit under the same D2 settings (17 δ,
-                   no σ_δ/ε_x, + L1 shift, λ_reach, full box): the re-baseline
+  A1  17 linac/FF δ + 14 injector δ, latent at the prior mean
+  A2  A1 + one fitted latent per bunch, shared by the scan
+  A3  A2 + a per-step latent residual (prior 0.3 × the prior σ)
+  A4  17 linac/FF δ only (injector at golden)    } injector ablations
+  A5  17 + the 6 active injector knobs           }
+  A6  17 + active 6 + L0B 2                      }
+  X1  the xtcav23 flow refit under the same D2 settings (17 δ, no σ_δ/ε_x,
+      + L1 shift, λ_reach, full box): the re-baseline
+
+each under one of three off-shot row-correction conventions (suffix):
+
+  _D  Stage D's: real targets corrected (deployed, contaminated references),
+      model images NOT corrected — asymmetric (port review: correcting the
+      model alone moves its images by TV ~1.0 at early steps)
+  _N  neither side corrected (targets_rowref_none)
+  _B  both corrected: clean real references (targets_rowref_clean) + the same
+      deployed op on the model's own TCAV-off image (ForwardModel row_center)
 
 Every arm fits ν_y, L2_ref, the L1 shift and δ_tr; σ_δ and ε_x are dropped.
 The weak ridge covers the CNF's inputs only (knobs, latent, L1/L2 shifts); ν_y
 and δ_tr (measurement chain, no box) keep Stage D's λ* (config lambda_cal) —
 at λ_reach the unbounded δ_tr ran to −5…−8% k1 in 3 iterations (2026-10-29).
 Light protocol: deterministic loss (latent fixed or fitted, never redrawn),
-restart agreement, wall flags. Orientation: `--orient` refits A1 on all four
-row-order × streak-pairing hypotheses first.
+restart agreement, wall flags. Orientation: `--orient` refits A1_D on all four
+row-order × streak-pairing hypotheses.
 
   cd /home/rwu4/photoinjector-rl/xtcav-gpsr-tuning && \
   CUDA_VISIBLE_DEVICES=0 PYTHONPATH=$PWD/src \
     /home/rwu4/miniconda3/envs/slac-rl/bin/python scripts/run_stageD2_reach.py \
-    --arms A1_all_mean --restarts 3
+    --arms A1_N --restarts 3
 
 Outputs -> results/stageD2/15673/reach/<arm>.json (+ orient.json)
 """
@@ -67,18 +75,23 @@ PASSIVE6 = ["L0AF_phase_offset_deg", "SOL10111:solenoid_field_scale",
             "distgen:start:MTE:value", "sigma_t_ps"]
 ALL31 = LINAC17 + L0B2 + ACTIVE6 + PASSIVE6
 
-ARMS = {
-    "A1_all_mean": dict(model="cnf", knobs=ALL31, latent="mean"),
-    "A2_all_shared": dict(model="cnf", knobs=ALL31, latent="shared"),
-    "A3_all_resid": dict(model="cnf", knobs=ALL31, latent="shared_resid"),
-    "A4_linac_mean": dict(model="cnf", knobs=LINAC17, latent="mean"),
-    "A5_active6_mean": dict(model="cnf", knobs=LINAC17 + ACTIVE6, latent="mean"),
-    "A6_actL0B_mean": dict(model="cnf", knobs=LINAC17 + ACTIVE6 + L0B2, latent="mean"),
-    "A7_all_mean_rc": dict(model="cnf", knobs=ALL31, latent="mean", row_center=True),
-    "A8_all_shared_rc": dict(model="cnf", knobs=ALL31, latent="shared", row_center=True),
-    "X1_xtcav23": dict(model="xtcav23", knobs=LINAC17, latent=None),
-    "X2_xtcav23_rc": dict(model="xtcav23", knobs=LINAC17, latent=None, row_center=True),
+CONVENTIONS = {"D": dict(targets="deployed", row_center=False),
+               "N": dict(targets="none", row_center=False),
+               "B": dict(targets="clean", row_center=True)}
+_BASE_ARMS = {
+    "A1": dict(model="cnf", knobs=ALL31, latent="mean"),
+    "A2": dict(model="cnf", knobs=ALL31, latent="shared"),
+    "A3": dict(model="cnf", knobs=ALL31, latent="shared_resid"),
+    "A4": dict(model="cnf", knobs=LINAC17, latent="mean"),
+    "A5": dict(model="cnf", knobs=LINAC17 + ACTIVE6, latent="mean"),
+    "A6": dict(model="cnf", knobs=LINAC17 + ACTIVE6 + L0B2, latent="mean"),
+    "X1": dict(model="xtcav23", knobs=LINAC17, latent=None),
 }
+ARMS = {f"{a}_{c}": {**spec, **conv} for a, spec in _BASE_ARMS.items()
+        for c, conv in CONVENTIONS.items()}
+TARGET_FILES = {"deployed": None,  # the Stage D targets.npz (config targets_npz)
+                "clean": "results/stageD2/15673/targets_rowref_clean.npz",
+                "none": "results/stageD2/15673/targets_rowref_none.npz"}
 
 
 def subset_setup(setup, names, cfg_d2):
@@ -96,6 +109,10 @@ def subset_setup(setup, names, cfg_d2):
                                 dtype=torch.float64, device=setup.device)
     s.bound_norm = torch.full((len(names),), float(cfg_d2["delta_bound_frac"]),
                               dtype=torch.float64, device=setup.device)
+    # asymmetric [-lo, +hi] about each knob's baseline u0: bound_frac 0.5 = exactly the box
+    u0 = setup.baseline_norm[idx]
+    f = float(cfg_d2["delta_bound_frac"]) / 0.5
+    s.bound_lo, s.bound_hi = f * u0, f * (1.0 - u0)
     return s
 
 
@@ -119,14 +136,15 @@ def make_model(arm, device, seed=0, rng=None):
     m = ForwardModel(s, base, cfg["voltage_V"], n_particles=int(cfg["n_particles"]),
                      anchor="none", image_anchor=True, l2ref_nuisance=True,
                      l1ref_nuisance=True, seed=seed, base_off_norm=base,
-                     latent_mode=spec["latent"], row_center=spec.get("row_center", False),
+                     latent_mode=spec["latent"], row_center=spec["row_center"],
                      resid_tau=float(cfg_d2["latent_resid_tau"])).to(device)
     if rng is not None:  # restart jitter, as Stage D (δ raw ~ N(0, 0.3), δ_tr ~ 0.5%)
         with torch.no_grad():
             m.delta_raw.copy_(torch.tensor(rng.normal(0.0, 0.3, size=m.delta_raw.shape)))
             m.dtr.copy_(torch.tensor(rng.normal(0.0, 0.005, size=(3,))))
-            if spec["latent"] in ("shared", "shared_resid"):
-                m.s_lat.add_(torch.tensor(rng.normal(0.0, 0.3, size=m.s_lat.shape)))
+            if spec["latent"] in ("shared", "shared_resid"):  # prior-σ units (port review #2/#3)
+                m.s_lat.add_(torch.as_tensor(rng.normal(0.0, 0.5, size=tuple(m.s_lat.shape)),
+                                             dtype=m.s_lat.dtype, device=m.s_lat.device))
     return m, cfg, cfg_d2
 
 
@@ -157,8 +175,7 @@ def fit_once(arm, tgt, device, seed=0, rng=None, iters=ITERS, lam=None):
     res.update(final_img_loss=parts["img"], final_off_loss=parts["off"],
                final_split_loss=parts["split"], per_image_tv=parts["per_image_tv"].tolist(),
                l2_shift_deg=float(m.l2_shift_deg), seed=int(seed), lam=lam, iters=iters,
-               total_loss=float(res["loss_history"][-1]), fit_seconds=time.time() - t0,
-               walls=[k for k, v in res["tanh_sat"].items() if v > 0.95])
+               total_loss=float(res["loss_history"][-1]), fit_seconds=time.time() - t0)
     if null is not None:
         res["null"] = {"img": null["img"], "off": null["off"], "split": null["split"],
                        "per_image_tv": null["per_image_tv"].tolist()}
@@ -170,8 +187,10 @@ def fit_once(arm, tgt, device, seed=0, rng=None, iters=ITERS, lam=None):
     return res
 
 
-def load_real(device):
+def load_real(device, variant="deployed"):
     cfg, _, _ = get_setup("cnf", device)
+    if TARGET_FILES[variant] is not None:
+        cfg = {**cfg, "targets_npz": TARGET_FILES[variant]}
     return load_targets(cfg, device=device)
 
 
@@ -181,7 +200,7 @@ def run_orient(device, iters):
     for fr in (False, True):
         for sw in (False, True):
             key = f"flip{int(fr)}_swap{int(sw)}"
-            r = fit_once("A1_all_mean", orient_targets(real, fr, sw), device, iters=iters)
+            r = fit_once("A1_D", orient_targets(real, fr, sw), device, iters=iters)
             runs[key] = {"flip_rows": fr, "swap_signs": sw, "img_loss": r["final_img_loss"],
                          "null_img": r["null"]["img"], "total": r["total_loss"]}
             print(f"  orient {key}: null {r['null']['img']:.4f} -> fit {r['final_img_loss']:.4f}",
@@ -199,6 +218,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--arms", nargs="*", default=[])
     ap.add_argument("--restarts", type=int, default=3)
+    ap.add_argument("--start", type=int, default=0,
+                    help="first restart index; >0 appends to the arm's existing json")
     ap.add_argument("--iters", type=int, default=ITERS)
     ap.add_argument("--orient", action="store_true")
     ap.add_argument("--hyp", default=None, help="flipF_swapS; default: orient.json winner")
@@ -212,21 +233,26 @@ def main():
         return
     hyp = args.hyp or json.loads((OUT / "orient.json").read_text())["winner"]
     fr, sw = hyp == "flip1_swap1" or hyp.startswith("flip1"), hyp.endswith("swap1")
-    real = load_real(device)
-    tgt = orient_targets(real, fr, sw)
     for arm in args.arms:
-        runs = []
-        for s in range(args.restarts):
+        tgt = orient_targets(load_real(device, ARMS[arm]["targets"]), fr, sw)
+        runs, hist = [], []
+        prev = OUT / f"{arm}{args.tag}.json"
+        if args.start > 0 and prev.exists():
+            d = json.loads(prev.read_text())
+            runs, hist = d["runs"], d["loss_history"]
+            runs = [r for r in runs if r["seed"] < args.start]
+            hist = hist[:len(runs)]
+        for s in range(args.start, args.start + args.restarts):
             rng = np.random.default_rng(1000 + s) if s else None  # restart 0 = zero init
             r = fit_once(arm, tgt, device, seed=s, rng=rng, iters=args.iters)
+            hist.append(r.pop("loss_history"))
             runs.append(r)
             print(f"  {arm} restart {s}: img {r['final_img_loss']:.4f} off {r['final_off_loss']:.4f} "
                   f"split {r['final_split_loss']:.4f} walls {r['walls']} "
                   f"({r['fit_seconds'] / 60:.1f} min)", flush=True)
             out = {"arm": arm, "spec": {k: v for k, v in ARMS[arm].items()}, "hypothesis": hyp,
-                   "runs": [{k: v for k, v in x.items() if k != "loss_history"} for x in runs],
-                   "loss_history": [x["loss_history"] for x in runs],
-                   "provenance": provenance(CFG_D2)}
+                   "runs": runs, "loss_history": hist,
+                   "provenance": provenance(CFG_D2 if ARMS[arm]["model"] == "cnf" else CFG_D)}
             (OUT / f"{arm}{args.tag}.json").write_text(json.dumps(out, indent=1))
 
 

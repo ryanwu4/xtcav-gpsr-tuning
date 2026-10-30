@@ -36,6 +36,18 @@ def provenance(config_path=STAGE_D_CONFIG) -> dict:
     for f in ("fit.py", "screen.py", "stage_d.py", "segment.py",
               "identifiability.py", "targets_real.py"):
         h[f] = hashlib.sha256((src / f).read_bytes()).hexdigest()[:12]
+    # the forward model proper lives in twobunch-s2e-rl xtcav_segment (re-exported
+    # here), and D2 configs load a twobunch_cnf bundle (port review #8)
+    seg = paths.TWOBUNCH_SRC / "xtcav_segment"
+    for f in ("segment.py", "convert.py", "screen.py", "_bridge.py"):
+        h[f"xtcav_segment/{f}"] = hashlib.sha256((seg / f).read_bytes()).hexdigest()[:12]
+    import yaml
+    cfg = yaml.safe_load(Path(config_path).read_text())
+    if cfg.get("cnf_bundle"):
+        import twobunch_cnf
+        from twobunch_cnf.bundle import read_bundle
+        h["cnf_bundle_sha256"] = read_bundle(cfg["cnf_bundle"])["checkpoint"]["sha256"][:12]
+        h["twobunch_cnf"] = twobunch_cnf.__version__
     h["config"] = hashlib.sha256(Path(config_path).read_bytes()).hexdigest()[:12]
     return h
 
