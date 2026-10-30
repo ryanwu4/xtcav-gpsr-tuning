@@ -6,3 +6,4 @@ results/**/*.json
 results/**/*.png
 results/**/*.h5
 !results/stageA/REPORT.md
+models/

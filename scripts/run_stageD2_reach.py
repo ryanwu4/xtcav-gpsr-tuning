@@ -12,6 +12,8 @@ weak ridge (λ_reach = λ*_D / 100)? Arms (interview 2026-10-29):
   A6  17 + active 6 + L0B 2                      }
   X1  the xtcav23 flow refit under the same D2 settings (17 δ, no σ_δ/ε_x,
       + L1 shift, λ_reach, full box): the re-baseline
+  W1  A1 on the wide-box fine-tune c_b3w_ema (fit-only model, models/c_b3w_ema;
+      scripts/stageD2_after_widebox.sh): charge, d2 delay, L1/L2 boxes widened
 
 each under one of three off-shot row-correction conventions (suffix):
 
@@ -59,6 +61,7 @@ from xtcav_gpsr_tuning.stage_d import (conditioning, load_stage_d,  # noqa: E402
                                        load_targets, provenance)
 
 CFG_D2 = REPO / "configs" / "fit_stageD2_15673.yaml"
+CFG_D2W = REPO / "configs" / "fit_stageD2W_15673.yaml"   # = CFG_D2 on the wide-box bundle
 CFG_D = REPO / "configs" / "fit_stageD_15673.yaml"
 OUT = REPO / "results" / "stageD2" / "15673" / "reach"
 
@@ -86,6 +89,7 @@ _BASE_ARMS = {
     "A5": dict(model="cnf", knobs=LINAC17 + ACTIVE6, latent="mean"),
     "A6": dict(model="cnf", knobs=LINAC17 + ACTIVE6 + L0B2, latent="mean"),
     "X1": dict(model="xtcav23", knobs=LINAC17, latent=None),
+    "W1": dict(model="cnf_wide", knobs=ALL31, latent="mean"),
 }
 ARMS = {f"{a}_{c}": {**spec, **conv} for a, spec in _BASE_ARMS.items()
         for c, conv in CONVENTIONS.items()}
@@ -102,6 +106,7 @@ ARMS.update({
     "A1calg_B": {**ARMS["A1_B"], "veff_scale": VEFF_DEDICATED, "l2_gain": True},
     "X1cal_B": {**ARMS["X1_B"], "veff_scale": VEFF_DEDICATED},
 })
+CFGS = {"cnf": CFG_D2, "cnf_wide": CFG_D2W, "xtcav23": CFG_D}
 TARGET_FILES = {"deployed": None,  # the Stage D targets.npz (config targets_npz)
                 "clean": "results/stageD2/15673/targets_rowref_clean.npz",
                 "none": "results/stageD2/15673/targets_rowref_none.npz"}
@@ -136,7 +141,7 @@ def get_setup(model, device):
     """(cfg, setup, base) per model, cached: the shared segment is mutated by
     every forward (TDC voltage, δ_tr quads), but always from pristine values."""
     if model not in _SETUPS:
-        cfg, setup = load_stage_d(CFG_D2 if model == "cnf" else CFG_D, device=device)
+        cfg, setup = load_stage_d(CFGS[model], device=device)
         _SETUPS[model] = (cfg, setup, conditioning(setup, cfg))
     return _SETUPS[model]
 
@@ -313,7 +318,7 @@ def main():
                   f"({r['fit_seconds'] / 60:.1f} min)", flush=True)
             out = {"arm": arm, "spec": {k: v for k, v in ARMS[arm].items()}, "hypothesis": hyp,
                    "runs": runs, "loss_history": hist,
-                   "provenance": provenance(CFG_D2 if ARMS[arm]["model"] == "cnf" else CFG_D)}
+                   "provenance": provenance(CFGS[ARMS[arm]["model"]])}
             (OUT / f"{arm}{args.tag}.json").write_text(json.dumps(out, indent=1))
 
 
