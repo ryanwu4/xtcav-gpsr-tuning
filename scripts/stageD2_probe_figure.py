@@ -29,12 +29,15 @@ def main():
     ap.add_argument("--conv", default="B")
     ap.add_argument("--cnf", nargs="*", default=[])
     ap.add_argument("--sign", default="plus", choices=["plus", "minus"])
+    ap.add_argument("--points", nargs="*", default=None, help="subset of probe points (default all)")
+    ap.add_argument("--suffix", default="")
     a = ap.parse_args()
     gi = 0 if a.sign == "plus" else 1
     pdir = REPO / "data" / a.probe
     rows = json.loads((pdir / "manifest.json").read_text())
     real = targets(a.conv)["images"].numpy()
     points = list(dict.fromkeys(r["injector_point"] for r in rows))
+    points = [p for p in points if a.points is None or p in a.points]
     steps = sorted({r["step"] for r in rows})
     cnf = {n: np.load(REPO / "results/stageD2/15673/render" / f"{n}.npz")["imgs"] for n in a.cnf}
     cols = ["real"] + points + list(cnf)
@@ -70,7 +73,7 @@ def main():
     fig.suptitle(f"{a.probe}: real vs S2E (Impact-T+Bmad, 1e5) vs CNF, {a.sign} sign, convention "
                  f"{a.conv}", fontsize=10)
     fig.tight_layout()
-    out = REPO / "results/stageD2/15673/figures" / f"probe_{a.probe}_{a.conv}_{a.sign}.png"
+    out = REPO / "results/stageD2/15673/figures" / f"probe_{a.probe}_{a.conv}_{a.sign}{a.suffix}.png"
     fig.savefig(out, dpi=120)
     print(out)
 
