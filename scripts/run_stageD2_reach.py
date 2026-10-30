@@ -105,6 +105,7 @@ ARMS.update({
     "A1g_B": {**ARMS["A1_B"], "l2_gain": True},
     "A1calg_B": {**ARMS["A1_B"], "veff_scale": VEFF_DEDICATED, "l2_gain": True},
     "X1cal_B": {**ARMS["X1_B"], "veff_scale": VEFF_DEDICATED},
+    "W1calg_B": {**ARMS["W1_B"], "veff_scale": VEFF_DEDICATED, "l2_gain": True},
 })
 CFGS = {"cnf": CFG_D2, "cnf_wide": CFG_D2W, "xtcav23": CFG_D}
 TARGET_FILES = {"deployed": None,  # the Stage D targets.npz (config targets_npz)
