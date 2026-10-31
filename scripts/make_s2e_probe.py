@@ -9,7 +9,9 @@ plus an optional "laser_heater" dict (FACET2-S2E addLHmodulation kwargs; needs t
 stageD2-widebox tracker, sim/bmad.track(laser_heater=...)). "l2_shift_by_step" {step: deg}
 overrides l2_shift_deg per step. "l2_machine" {theta0_deg, phi11_deg} scans L2 the way the
 machine's multiknob does (sim/bmad.apply_l2_machine): the lattice sits at the scan centre and
-the tracker rotates LI12-14 by this step's offset, LI11 fixed, 14-4/14-6 holding the energy.
+the tracker rotates LI12-14 by this step's offset, LI11 fixed, 14-4/14-6 holding the energy;
+optional "hold_delta_deg" (offset from the centre) freezes every quad's field at that L2 state
+(the machine LEM'd there) instead of S2E's default re-LEM at every step.
 Every point is tracked at every probe step; rows of one step share a linac_id, hence
 the Tao random seed, across points (common random numbers for the comparison).
 

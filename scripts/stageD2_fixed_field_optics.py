@@ -2,9 +2,9 @@
 real machine during a scan, no re-LEM) instead of their K1 (Bmad/FACET2-S2E default, i.e. an
 automatic LEM at every step). No tracking: linear optics only.
 
-Per geometry (l2m_A, l2m_B of probe s2e_l2machine_15673) and scan offset delta from the centre:
-setLattice at the scan centre, apply the geometry's centre solution (= the state the machine was
-LEM'd in), then apply the step (sim/bmad.l2_machine_solve) with K1 held and with the fields held.
+Per geometry (l2m_A, l2m_B of probe s2e_l2machine_15673), LEM point (scan centre or scan start)
+and step: the geometry's L2 state at the LEM point (sim/bmad.apply_l2_machine), then the step with
+K1 held and with the fields frozen at the LEM point (hold_delta_deg; K1 restored after each).
 Reports the reference-energy change at every quad from LI11 to BC14, and Bmag / beta ratios at
 BEGBC14_1, BEGBC20, XTCAVF and DTOTR for the tracked beam's own Twiss at BL11356 (90% core,
 upstream of L2) propagated with Tao's transfer matrices. Tao's design Twiss is not used: it is
@@ -22,14 +22,14 @@ from pathlib import Path
 import numpy as np
 import yaml
 import FACET2_S2E as qs
-from FACET2_S2E.simulators.bmad.lattice.linac import getLinacMatchStrings
 from pmd_beamphysics import ParticleGroup
 from twobunch_s2e_rl.datagen.paths import facet2_root
-from twobunch_s2e_rl.sim.bmad import l2_machine_solve, make_tao, merged_settings
+from twobunch_s2e_rl.sim.bmad import (apply_l2_machine, make_tao, merged_settings,
+                                     release_quad_fields)
 
 P = Path("/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/data/s2e_l2machine_15673")
 MARK = ["BEGBC14_1", "BEGBC20", "XTCAVF", "DTOTR"]
-DELTAS = [-4.0, -2.0, 2.0, 4.0]
+HOLDS = {0.0: [-4.0, -2.0, 2.0, 4.0], -4.0: [-2.0, 0.0, 2.0, 4.0]}   # LEM offset: step offsets (deg from centre)
 
 
 def bmag(t, t0):
@@ -69,50 +69,41 @@ def main():
     quads = [n for n in dict.fromkeys(str(q) for q in tao.lat_list(
         "Quadrupole::*", "ele.name", flags="-no_slaves -array_out")) if lo < get(n, "s") < hi]
     energy = lambda: np.array([get(n, "E_TOT") for n in quads])
-    group = lambda n: ("fixed" if n.startswith("K11_") else "p4" if n.startswith("K14_4")
-                       else "p6" if n.startswith("K14_6") else "scan")
+    k1_all = lambda: np.asarray(tao.lat_list("Quadrupole::*", "ele.K1", flags="-no_slaves -array_out"))
     out = {"beam_twiss_BL11356": T0, "quads": quads, "rows": {}}
     for p in ("l2m_A", "l2m_B"):
         r = next(r for r in rows if r["injector_point"] == p and r["step"] == 0)
-        for d in DELTAS:
-            qs.setLattice(tao, **merged_settings(base, cfg.get("fixed_overrides", {}), r["knobs"]))
-            names = [str(n) for n in getLinacMatchStrings(tao)[1]]
-            V = {n: get(n, "VOLTAGE") for n in names}
-            G = {n: get(n, "GRADIENT") for n in names}
-            phi_m = 360.0 * get(names[0], "PHI0")
-            tot = {g: sum(v for n, v in V.items() if group(n) == g) for g in ("fixed", "scan", "p4", "p6")}
-
-            def set_l2(delta):
-                sol = l2_machine_solve(tot["fixed"], tot["scan"], (tot["p4"], tot["p6"]), phi_m,
-                                       {**r["l2_machine"], "delta_deg": delta})
-                ph = {"fixed": sol["phi11_deg"], "scan": sol["psi_deg"],
-                      "p4": sol["psi_deg"] - sol["theta_deg"], "p6": sol["psi_deg"] + sol["theta_deg"]}
-                for n in names:
-                    tao.cmd(f"set ele {n} PHI0 = {ph[group(n)] / 360.0}")
-                    tao.cmd(f"set ele {n} GRADIENT = {G[n] * sol['scale']}")
-
-            set_l2(0.0)                          # the state the machine was LEM'd in
-            t0, e0 = twiss(), energy()
-            set_l2(d)                            # K1 held (S2E default)
-            t_k1, e1 = twiss(), energy()
-            set_l2(0.0)
-            tao.cmd("set ele Quadrupole::* FIELD_MASTER = T")
-            set_l2(d)                            # fields held (real machine)
-            t_b = twiss()
-            tao.cmd("set ele Quadrupole::* FIELD_MASTER = F")
-            de = e1 / e0 - 1
-            o = {"dE_over_E": dict(zip(quads, de.tolist())),
-                 "optics": {m: {pl: {"bmag_fields_held": bmag(t_b[m][pl], t0[m][pl]),
-                                     "bmag_K1_held": bmag(t_k1[m][pl], t0[m][pl]),
-                                     "beta_ratio_fields_held": t_b[m][pl][0] / t0[m][pl][0]}
-                                for pl in "ab"} for m in MARK}}
-            out["rows"][f"{p}_{d:+.0f}"] = o
-            k = int(np.argmax(np.abs(de)))
-            dt = o["optics"]["DTOTR"]
-            print(f"{p} delta {d:+.0f}: max |dE/E| {de[k]:+.4f} at {quads[k]}; fields held: Bmag x/y "
-                  f"{dt['a']['bmag_fields_held']:.3f}/{dt['b']['bmag_fields_held']:.3f}, beta at DTOTR "
-                  f"x{dt['a']['beta_ratio_fields_held']:.2f}/x{dt['b']['beta_ratio_fields_held']:.2f}; "
-                  f"K1 held: Bmag max {max(dt[pl]['bmag_K1_held'] for pl in 'ab'):.4f}")
+        lattice = lambda: qs.setLattice(tao, **merged_settings(base, cfg.get("fixed_overrides", {}),
+                                                               r["knobs"]))
+        for hold, deltas in HOLDS.items():
+            for d in deltas:
+                spec = {**r["l2_machine"], "delta_deg": hold}
+                lattice()
+                k1_design = k1_all()
+                apply_l2_machine(tao, spec)              # the state the machine was LEM'd in
+                t0, e0 = twiss(), energy()
+                lattice()
+                apply_l2_machine(tao, {**spec, "delta_deg": d})       # K1 held (S2E default)
+                t_k1, e1 = twiss(), energy()
+                lattice()
+                _, held = apply_l2_machine(tao, {**spec, "delta_deg": d, "hold_delta_deg": hold})
+                t_b = twiss()                            # fields held (real machine)
+                release_quad_fields(tao, held)
+                assert np.allclose(k1_all(), k1_design, rtol=1e-12, atol=0), "K1 not restored"
+                de = e1 / e0 - 1
+                o = {"dE_over_E": dict(zip(quads, de.tolist())),
+                     "optics": {m: {pl: {"bmag_fields_held": bmag(t_b[m][pl], t0[m][pl]),
+                                         "bmag_K1_held": bmag(t_k1[m][pl], t0[m][pl]),
+                                         "beta_ratio_fields_held": t_b[m][pl][0] / t0[m][pl][0]}
+                                    for pl in "ab"} for m in MARK}}
+                out["rows"][f"{p}_hold{hold:+.0f}_{d:+.0f}"] = o
+                k = int(np.argmax(np.abs(de)))
+                dt = o["optics"]["DTOTR"]
+                print(f"{p} LEM'd at scan {4 + hold:.0f}, step scan {4 + d:.0f}: max |dE/E| {de[k]:+.4f} at "
+                      f"{quads[k]}; fields held: Bmag x/y {dt['a']['bmag_fields_held']:.3f}/"
+                      f"{dt['b']['bmag_fields_held']:.3f}, beta at DTOTR x{dt['a']['beta_ratio_fields_held']:.2f}"
+                      f"/x{dt['b']['beta_ratio_fields_held']:.2f}; K1 held: Bmag max "
+                      f"{max(dt[pl]['bmag_K1_held'] for pl in 'ab'):.4f}")
     (P / "fixed_field_optics.json").write_text(json.dumps(out, indent=1))
 
 
