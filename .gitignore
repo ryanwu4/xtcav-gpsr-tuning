@@ -11,3 +11,4 @@ models/
 results/stageD2/**/render/
 results/stageD2/**/logs/
 results/stageD2/**/targets_s2e_*.npz
+results/stageD2/**/shot_means_*.npz
