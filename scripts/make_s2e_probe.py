@@ -40,7 +40,7 @@ STEPS = [2, 10, 16, 26]          # scan +0.5, +2.5, +4.0, +6.5 deg (0-based targ
 MID = 16                         # scan centre (+4.0 deg) for machine-like L2 scans
 
 
-def config(name, out, n_particles, seed, csr_n_bin=None):
+def config(name, out, n_particles, seed, csr_n_bin=None, lsc_range=None):
     return {
         "name": name, "output_dir": str(out),
         "sweep_set": "xtcav23e_l0b2_inj12", "linac_sweep_set": "xtcav23e_l0b2",
@@ -50,6 +50,7 @@ def config(name, out, n_particles, seed, csr_n_bin=None):
         "design": {"seed": int(seed), "note": "manifest written by make_s2e_probe.py"},
         "csrTF": True, "transverseWakes": True,
         **({"csr_n_bin": int(csr_n_bin)} if csr_n_bin else {}),
+        **({"lsc_range": lsc_range} if lsc_range else {}),
         "baseline_config": "setLattice_configs/2024-10-14_twoBunch_baseline.yml",
         "treaty_points": ["BL11356", "BEGBC20", "XTCAVF", "PENT"],
         "save_beams_at": ["BL11356", "XTCAVF"],
@@ -93,6 +94,8 @@ def main():
     ap.add_argument("--steps", type=int, nargs="*", default=STEPS)
     ap.add_argument("--csr-n-bin", type=int, default=None,
                     help="1D CSR longitudinal bins (campaign csr_n_bin; default: Activate_CSR.tao 40)")
+    ap.add_argument("--lsc-range", default=None,
+                    help="Bmad element range with 1D slice LSC on (campaign lsc_range; default: off)")
     a = ap.parse_args()
     out = REPO / "data" / a.name
     if (out / "manifest.json").exists():
@@ -101,7 +104,8 @@ def main():
     points = json.loads(Path(a.points).read_text())
     (out / "points.json").write_text(json.dumps(points, indent=1))
     (out / "config.yaml").write_text(yaml.safe_dump(config(a.name, out, a.n_particles, a.seed,
-                                                           a.csr_n_bin), sort_keys=False))
+                                                           a.csr_n_bin, a.lsc_range),
+                                                    sort_keys=False))
     rows = rows_for(points, a.steps)
     (out / "manifest.json").write_text(json.dumps(rows, indent=1))
     print(f"{out}: {len(points)} points x {len(a.steps)} steps = {len(rows)} rows")
