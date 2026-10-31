@@ -611,10 +611,16 @@ class ForwardModel(torch.nn.Module):
                                qd, qw, self.s.grid,
                                anchor="none" if self.image_anchor else self.anchor,
                                y_scale=torch.exp(self.log_nu_y))
-        if self.fit_blur:
-            v = torch.nn.functional.softplus(self.blur_u[0 if sign else 1])
-            img = gaussian_blur_fft(img, v[0], v[1])
         return img
+
+    def _blur(self, img: torch.Tensor, sign: float) -> torch.Tensor:
+        """The fitted screen resolution (fit_blur), applied AFTER the model-side row correction:
+        off_row_shifts keeps fitting the unblurred off image (a per-row Gaussian centre barely
+        moves under blur, and blurred faint rows made those fits degenerate)."""
+        if not self.fit_blur:
+            return img
+        v = torch.nn.functional.softplus(self.blur_u[0 if sign else 1])
+        return gaussian_blur_fft(img, v[0], v[1])
 
     def blur_sigma_px(self) -> torch.Tensor:
         """(2, 2) fitted resolution σ [px]: rows (streaked, off), columns (energy, time/x)."""
@@ -652,7 +658,7 @@ class ForwardModel(torch.nn.Module):
                     img = shift_rows(img, shifts)
                 # anchor per phi-member THEN average (mirrors per-shot
                 # anchoring before averaging on the target side)
-                img = self._anchor(img)
+                img = self._anchor(self._blur(img, sign))
                 acc = img if acc is None else acc + img
             img_mean = acc / len(phis)
             images.append(img_mean)
@@ -678,7 +684,7 @@ class ForwardModel(torch.nn.Module):
         if self.row_center:
             shifts = off_row_shifts(raw[2])
             raw = [shift_rows(r, shifts) for r in raw]
-        outs = [self._anchor(r) for r in raw]
+        outs = [self._anchor(self._blur(r, sign)) for r, sign in zip(raw, (1.0, -1.0, 0.0))]
         # same-estimator, sign-dependent split (audit #5)
         splits = torch.stack([image_zlobe_split(outs[0]), image_zlobe_split(outs[1])])
         return (torch.stack(outs[:2]), splits, outs[2])
@@ -694,7 +700,7 @@ class ForwardModel(torch.nn.Module):
         img = self._render(beam, qd, qw, 0.0, self.phi * 360.0)
         if self.row_center:
             img = shift_rows(img, off_row_shifts(img))
-        return self._anchor(img)
+        return self._anchor(self._blur(img, 0.0))
 
 
 def map_loss(model: ForwardModel, targets: torch.Tensor, target_splits: torch.Tensor,
