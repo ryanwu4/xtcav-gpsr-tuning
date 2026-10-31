@@ -102,6 +102,8 @@ ARMS = {f"{a}_{c}": {**spec, **conv} for a, spec in _BASE_ARMS.items()
 #   l2_gain — fitted L2 scan gain (the multiknob moves only LI12-14)
 #   blur — fitted Gaussian screen resolution, per axis, streaked and TCAV-off separately
 #     (the real traces are thicker than the model's; ForwardModel fit_blur)
+#   l2_gain_fixed — the L2 scan gain held at a given value instead of fitted: 1.065 is the
+#     gain predicted from the E331 per-klystron config at 15673's sub-booster set phase
 CAL_DEDICATED = 0.5 * (1219.0 + 1182.0) / 72.88
 VEFF_DEDICATED = CAL_DEDICATED / 14.402902846221519
 ARMS.update({
@@ -112,6 +114,7 @@ ARMS.update({
     "W1calg_B": {**ARMS["W1_B"], "veff_scale": VEFF_DEDICATED, "l2_gain": True},
 })
 ARMS["A1calgr_B"] = {**ARMS["A1calg_B"], "blur": True}
+ARMS["A1calgfr_B"] = {**ARMS["A1calgr_B"], "l2_gain_fixed": 1.065}
 CFGS = {"cnf": CFG_D2, "cnf_wide": CFG_D2W, "xtcav23": CFG_D}
 TARGET_FILES = {"deployed": None,  # the Stage D targets.npz (config targets_npz)
                 "clean": "results/stageD2/15673/targets_rowref_clean.npz",
@@ -168,6 +171,10 @@ def make_model(arm, device, seed=0, rng=None):
                      latent_mode=spec["latent"], row_center=spec["row_center"],
                      resid_tau=float(cfg_d2["latent_resid_tau"]),
                      fit_blur=bool(spec.get("blur", False))).to(device)
+    if "l2_gain_fixed" in spec:
+        with torch.no_grad():
+            m.l2_gain_m1.fill_(float(spec["l2_gain_fixed"]) - 1.0)
+        m.l2_gain_m1.requires_grad_(False)
     if rng is not None:  # restart jitter, as Stage D (δ raw ~ N(0, 0.3), δ_tr ~ 0.5%)
         with torch.no_grad():
             m.delta_raw.copy_(torch.tensor(rng.normal(0.0, 0.3, size=m.delta_raw.shape)))
