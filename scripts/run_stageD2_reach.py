@@ -100,6 +100,8 @@ ARMS = {f"{a}_{c}": {**spec, **conv} for a, spec in _BASE_ARMS.items()
 #     (1219 / 1182 um/deg -> 16.47 um/um) instead of the jitter regression (14.40,
 #     biased low by phase-readback noise; per sign +1132 / -944 um/deg)
 #   l2_gain — fitted L2 scan gain (the multiknob moves only LI12-14)
+#   blur — fitted Gaussian screen resolution, per axis, streaked and TCAV-off separately
+#     (the real traces are thicker than the model's; ForwardModel fit_blur)
 CAL_DEDICATED = 0.5 * (1219.0 + 1182.0) / 72.88
 VEFF_DEDICATED = CAL_DEDICATED / 14.402902846221519
 ARMS.update({
@@ -109,6 +111,7 @@ ARMS.update({
     "X1cal_B": {**ARMS["X1_B"], "veff_scale": VEFF_DEDICATED},
     "W1calg_B": {**ARMS["W1_B"], "veff_scale": VEFF_DEDICATED, "l2_gain": True},
 })
+ARMS["A1calgr_B"] = {**ARMS["A1calg_B"], "blur": True}
 CFGS = {"cnf": CFG_D2, "cnf_wide": CFG_D2W, "xtcav23": CFG_D}
 TARGET_FILES = {"deployed": None,  # the Stage D targets.npz (config targets_npz)
                 "clean": "results/stageD2/15673/targets_rowref_clean.npz",
@@ -163,7 +166,8 @@ def make_model(arm, device, seed=0, rng=None):
                      anchor="none", image_anchor=True, l2ref_nuisance=True,
                      l1ref_nuisance=True, seed=seed, base_off_norm=base,
                      latent_mode=spec["latent"], row_center=spec["row_center"],
-                     resid_tau=float(cfg_d2["latent_resid_tau"])).to(device)
+                     resid_tau=float(cfg_d2["latent_resid_tau"]),
+                     fit_blur=bool(spec.get("blur", False))).to(device)
     if rng is not None:  # restart jitter, as Stage D (δ raw ~ N(0, 0.3), δ_tr ~ 0.5%)
         with torch.no_grad():
             m.delta_raw.copy_(torch.tensor(rng.normal(0.0, 0.3, size=m.delta_raw.shape)))
@@ -240,7 +244,7 @@ def fit_once(arm, tgt, device, seed=0, rng=None, iters=ITERS, lam=None, fit_step
         res["s_resid"] = m.s_resid.detach().cpu().tolist()
     res["state"] = {k: v.detach().cpu().tolist() for k, v in m.state_dict().items()
                     if k in ("delta_raw", "dtr", "log_nu_y", "l2_shift_deg", "l1_shift_deg",
-                             "s_lat", "s_resid", "l2_gain_m1")}
+                             "s_lat", "s_resid", "l2_gain_m1", "blur_u")}
     return res
 
 

@@ -80,3 +80,19 @@ def test_asymmetric_bound_spans_the_box(u0):
     t = torch.tensor([-1.0, 1.0])
     d = torch.where(t >= 0, t * hi, t * lo)
     np.testing.assert_allclose((u0 + d).numpy(), [0.0, 1.0], atol=1e-12)
+
+
+def test_gaussian_blur_fft_identity_sum_and_width():
+    from scipy.ndimage import gaussian_filter
+    from xtcav_gpsr_tuning.fit import gaussian_blur_fft
+    img = torch.zeros(1, 60, 80, dtype=torch.float64)
+    img[0, 30, 40] = 1.0
+    img[0, 20, 25] = 0.5
+    assert torch.allclose(gaussian_blur_fft(img, 0.0, 0.0), img, atol=1e-12)
+    out = gaussian_blur_fft(img, 2.0 ** 2, 3.0 ** 2)
+    assert abs(float(out.sum()) - 1.5) < 1e-9                           # interior: charge kept
+    ref = gaussian_filter(img[0].numpy(), sigma=(2.0, 3.0), mode="constant")
+    assert np.abs(out[0].numpy() - ref).max() < 2e-3 * ref.max()        # sampled vs continuous kernel
+    v = torch.tensor(1.0, dtype=torch.float64, requires_grad=True)
+    gaussian_blur_fft(img, v, v)[0, 30, 40].backward()
+    assert v.grad is not None and float(v.grad) < 0                     # blurring lowers the peak

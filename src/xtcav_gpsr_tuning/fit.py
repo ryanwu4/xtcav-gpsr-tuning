@@ -256,6 +256,19 @@ def _interp_matrix(finite: np.ndarray) -> np.ndarray:
     return A
 
 
+def gaussian_blur_fft(img: torch.Tensor, var_rows, var_cols, pad: int = 40) -> torch.Tensor:
+    """Separable Gaussian blur of (..., ny, nx) images with variances [px²] along the rows axis
+    (energy) and the columns axis (time / x), via a zero-padded FFT: exact identity at var = 0
+    and differentiable in the variances there."""
+    ny, nx = img.shape[-2:]
+    x = torch.nn.functional.pad(img, (pad, pad, pad, pad))
+    fy = torch.fft.fftfreq(ny + 2 * pad, dtype=img.dtype, device=img.device)
+    fx = torch.fft.rfftfreq(nx + 2 * pad, dtype=img.dtype, device=img.device)
+    H = torch.exp(-2.0 * np.pi ** 2 * (var_rows * fy[:, None] ** 2 + var_cols * fx[None, :] ** 2))
+    out = torch.fft.irfft2(torch.fft.rfft2(x) * H, s=x.shape[-2:])
+    return out[..., pad:pad + ny, pad:pad + nx]
+
+
 def off_row_shifts(off_imgs: torch.Tensor) -> torch.Tensor:
     """(B, ny, nx) TCAV-off images -> (B, ny) per-row shifts [px] from the SAME
     deployed routines the real targets use (``xtcav.fit_row_distortion`` +
@@ -316,7 +329,8 @@ class ForwardModel(torch.nn.Module):
                  fit_sdelta: bool = False, fit_ex: bool = False,
                  l1ref_nuisance: bool = False, latent_mode: str | None = None,
                  resid_tau: float = 0.3, row_center: bool = False,
-                 scan_deg: torch.Tensor | None = None, l2_gain_sigma: float = 0.25):
+                 scan_deg: torch.Tensor | None = None, l2_gain_sigma: float = 0.25,
+                 fit_blur: bool = False, blur_prior_px: float = 5.0):
         """Stage-D extensions (all default-off, Stage-C behavior unchanged):
         image_anchor — render anchor='none' then COM-center the IMAGE (the shared
           Stage-D anchor op; particle-space anchors don't exist on the real side);
@@ -341,7 +355,10 @@ class ForwardModel(torch.nn.Module):
         scan_deg — (B,) nominal L2 scan offsets [deg]: when given, a fitted L2
           scan GAIN g scales them, L2_i = L2_ref + shift + g * scan_i (the machine
           multiknob moves only the LI12-14 subboosters; the sim moves all of L2),
-          prior (g - 1) ~ N(0, l2_gain_sigma) under λ."""
+          prior (g - 1) ~ N(0, l2_gain_sigma) under λ;
+        fit_blur — a fitted Gaussian resolution on the rendered screen image, one σ per
+          axis (energy rows, time/x columns) for the streaked and for the TCAV-off images
+          separately, prior σ ~ N(0, blur_prior_px) per axis under the calibration λ."""
         super().__init__()
         self.s = setup
         self.register_buffer("base", base_knobs_norm.to(setup.device))  # (B,n_knob)
@@ -375,6 +392,12 @@ class ForwardModel(torch.nn.Module):
             self.scan_deg = None
         self.l2_gain_m1 = torch.nn.Parameter(torch.zeros((), dtype=torch.float64),
                                              requires_grad=scan_deg is not None)
+        # screen resolution: σ² = softplus(blur_u) [px²], rows (streaked, off) × (energy, time/x);
+        # starts at σ = 0.2 px, i.e. effectively the plain render
+        self.fit_blur = bool(fit_blur)
+        self.blur_prior_px = float(blur_prior_px)
+        self.blur_u = torch.nn.Parameter(torch.full((2, 2), float(np.log(np.expm1(0.04))),
+                                                    dtype=torch.float64), requires_grad=fit_blur)
         g = torch.Generator().manual_seed(seed)
         ld = setup.flow.latent_dim
         self.register_buffer("zd", torch.randn(n_particles, ld, generator=g))
@@ -581,11 +604,24 @@ class ForwardModel(torch.nn.Module):
                                        device=qd.device)
         out = self.s.segment.track(beam)
         nd = self.n
-        return render_two_bunch((out.x[:, :nd], out.y[:, :nd]),
-                                (out.x[:, nd:], out.y[:, nd:]),
-                                qd, qw, self.s.grid,
-                                anchor="none" if self.image_anchor else self.anchor,
-                                y_scale=torch.exp(self.log_nu_y))
+        img = render_two_bunch((out.x[:, :nd], out.y[:, :nd]),
+                               (out.x[:, nd:], out.y[:, nd:]),
+                               qd, qw, self.s.grid,
+                               anchor="none" if self.image_anchor else self.anchor,
+                               y_scale=torch.exp(self.log_nu_y))
+        if self.fit_blur:
+            v = torch.nn.functional.softplus(self.blur_u[0 if sign else 1])
+            img = gaussian_blur_fft(img, v[0], v[1])
+        return img
+
+    def blur_sigma_px(self) -> torch.Tensor:
+        """(2, 2) fitted resolution σ [px]: rows (streaked, off), columns (energy, time/x)."""
+        return torch.nn.functional.softplus(self.blur_u).sqrt()
+
+    def blur_chi2(self) -> torch.Tensor:
+        if not self.fit_blur:
+            return torch.zeros((), dtype=torch.float64, device=self.blur_u.device)
+        return (torch.nn.functional.softplus(self.blur_u) / self.blur_prior_px ** 2).sum()
 
     def _anchor(self, img: torch.Tensor) -> torch.Tensor:
         if not self.image_anchor:
@@ -696,6 +732,7 @@ def map_loss(model: ForwardModel, targets: torch.Tensor, target_splits: torch.Te
                                                ex_sigma_ln, None, l1ref_sigma_deg))
         pen = pen + lam_cal * _nuisance_prior(model, 0.0, nu_y_sigma_ln, None, None,
                                               dtr_sigma_frac, l1ref_sigma_deg, latent=False)
+    pen = pen + (lam if lam_cal is None else lam_cal) * model.blur_chi2()
     total = l_img + w_q * l_split + pen
     l_off = torch.zeros((), dtype=imgs.dtype, device=imgs.device)
     if targets_off is not None and w_off > 0:
@@ -753,8 +790,13 @@ def _stage_d2_state(model) -> dict:
     walls = [n for i, n in enumerate(names)
              if float(tsat[i]) > 0.95 or float(u[:, i].min()) <= eps or float(u[:, i].max()) >= 1 - eps]
     walls += [c for c, (a, b) in u_ph.items() if a <= eps or b >= 1 - eps]
+    with torch.no_grad():
+        blur = model.blur_sigma_px().cpu().numpy()
     return {"l1_shift_deg": float(model.l1_shift_deg),
             "l2_gain": 1.0 + float(model.l2_gain_m1),
+            "blur_px": ({"streak_energy": float(blur[0, 0]), "streak_time": float(blur[0, 1]),
+                         "off_energy": float(blur[1, 0]), "off_x": float(blur[1, 1])}
+                        if model.fit_blur else None),
             "latent": model.latent_state(),
             "u_final": {n: [float(u[:, i].min()), float(u[:, i].max())]
                         for i, n in enumerate(names)},
@@ -882,6 +924,7 @@ def run_fit_chunked(model: ForwardModel, targets, target_splits, lam,
             l_cal = _nuisance_prior(model, 0.0, nu_y_sigma_ln, None, None,
                                     dtr_sigma_frac, l1ref_sigma_deg, latent=False)
             pen = lam * (l_prior + l_nuis) + lam_cal * l_cal
+        pen = pen + (lam if lam_cal is None else lam_cal) * model.blur_chi2()
         pen.backward()
         tot += float(pen)
         opt.step()
