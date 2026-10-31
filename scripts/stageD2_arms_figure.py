@@ -37,10 +37,14 @@ ROWS = [  # (label, result json stem, model); section headers have stem None
     ("CNF, all 31 + V_eff + L2 gain", "A1calg_B", "cnf"),
     ("wide CNF, all 31 + V_eff + L2 gain", "W1calg_B", "cnf_wide"),
     ("CNF, all 31 + V_eff + L2 gain + resolution", "A1calgr_B", "cnf"),
+    ("CNF, all 31 + V_eff + resolution, L2 gain held 1.065", "A1calgfr_B", "cnf"),
     ("CNF, all 31, λ*", "A1_B_metro_r0", "cnf"),
     ("CNF, all 31 + V_eff + L2 gain, λ*", "A1calg_B_metro_r0", "cnf"),
     ("wide CNF, all 31 + V_eff + L2 gain, λ*", "W1calg_B_metro_r0", "cnf_wide"),
     ("CNF, all 31 + V_eff + L2 gain + resolution, λ*", "A1calgr_B_metro_r0", "cnf"),
+    ("CNF, all 31 + V_eff + resolution, L2 gain held 1.065, λ*", "A1calgfr_B_metro_r0", "cnf"),
+    ("wide CNF, all 31 + V_eff + L2 gain + resolution, λ*", "W1calgr_B_metro_r0", "cnf_wide"),
+    ("wide CNF, all 31 + V_eff + resolution, L2 gain held 1.065, λ*", "W1calgfr_B_metro_r0", "cnf_wide"),
 ]
 
 
@@ -57,7 +61,7 @@ def main():
         r = best_restart(d)
         null = next((x["null"]["img"] for x in d["runs"] if x.get("null")), None)
         rows.append((label, null, r["final_img_loss"], model))
-    fig, ax = plt.subplots(figsize=(8.2, 0.42 * len(rows) + 1.2), facecolor="#fcfcfb")
+    fig, ax = plt.subplots(figsize=(9.6, 0.42 * len(rows) + 1.2), facecolor="#fcfcfb")
     ax.set_facecolor("#fcfcfb")
     y = list(range(len(rows)))[::-1]
     for yi, (label, null, fit, model) in zip(y, rows):
