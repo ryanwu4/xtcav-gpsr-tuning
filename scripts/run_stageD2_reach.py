@@ -115,6 +115,9 @@ ARMS.update({
 })
 ARMS["A1calgr_B"] = {**ARMS["A1calg_B"], "blur": True}
 ARMS["A1calgfr_B"] = {**ARMS["A1calgr_B"], "l2_gain_fixed": 1.065}
+# the wide-box model (L2 box to -27.5 deg): g 1.065 puts A1calgfr_B's deep end at the c_b3 box edge
+ARMS["W1calgr_B"] = {**ARMS["W1calg_B"], "blur": True}
+ARMS["W1calgfr_B"] = {**ARMS["W1calgr_B"], "l2_gain_fixed": 1.065}
 CFGS = {"cnf": CFG_D2, "cnf_wide": CFG_D2W, "xtcav23": CFG_D}
 TARGET_FILES = {"deployed": None,  # the Stage D targets.npz (config targets_npz)
                 "clean": "results/stageD2/15673/targets_rowref_clean.npz",
