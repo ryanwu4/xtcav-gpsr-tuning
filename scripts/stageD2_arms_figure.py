@@ -36,9 +36,11 @@ ROWS = [  # (label, result json stem, model); section headers have stem None
     ("CNF, all 31 + shared latent", "A2_B", "cnf"),
     ("CNF, all 31 + V_eff + L2 gain", "A1calg_B", "cnf"),
     ("wide CNF, all 31 + V_eff + L2 gain", "W1calg_B", "cnf_wide"),
+    ("CNF, all 31 + V_eff + L2 gain + resolution", "A1calgr_B", "cnf"),
     ("CNF, all 31, λ*", "A1_B_metro_r0", "cnf"),
     ("CNF, all 31 + V_eff + L2 gain, λ*", "A1calg_B_metro_r0", "cnf"),
     ("wide CNF, all 31 + V_eff + L2 gain, λ*", "W1calg_B_metro_r0", "cnf_wide"),
+    ("CNF, all 31 + V_eff + L2 gain + resolution, λ*", "A1calgr_B_metro_r0", "cnf"),
 ]
 
 
