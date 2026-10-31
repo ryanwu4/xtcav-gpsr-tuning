@@ -394,11 +394,12 @@ class ForwardModel(torch.nn.Module):
             self.scan_deg = None
         self.l2_gain_m1 = torch.nn.Parameter(torch.zeros((), dtype=torch.float64),
                                              requires_grad=scan_deg is not None)
-        # screen resolution: σ² = softplus(blur_u) [px²], rows (streaked, off) × (energy, time/x);
-        # starts at σ = 0.2 px, i.e. effectively the plain render
+        # screen resolution σ = blur_prior_px · |blur_u| [px], rows (streaked, off) × (energy,
+        # time/x): linear in the parameter so an Adam step moves σ by ~lr · blur_prior_px (a
+        # softplus variance started at 0.04 px² grew only ×e^lr per step); starts at σ = 0.2 px
         self.fit_blur = bool(fit_blur)
         self.blur_prior_px = float(blur_prior_px)
-        self.blur_u = torch.nn.Parameter(torch.full((2, 2), float(np.log(np.expm1(0.04))),
+        self.blur_u = torch.nn.Parameter(torch.full((2, 2), 0.2 / self.blur_prior_px,
                                                     dtype=torch.float64), requires_grad=fit_blur)
         g = torch.Generator().manual_seed(seed)
         ld = setup.flow.latent_dim
@@ -619,17 +620,17 @@ class ForwardModel(torch.nn.Module):
         moves under blur, and blurred faint rows made those fits degenerate)."""
         if not self.fit_blur:
             return img
-        v = torch.nn.functional.softplus(self.blur_u[0 if sign else 1])
+        v = (self.blur_prior_px * self.blur_u[0 if sign else 1]) ** 2
         return gaussian_blur_fft(img, v[0], v[1])
 
     def blur_sigma_px(self) -> torch.Tensor:
         """(2, 2) fitted resolution σ [px]: rows (streaked, off), columns (energy, time/x)."""
-        return torch.nn.functional.softplus(self.blur_u).sqrt()
+        return self.blur_prior_px * self.blur_u.abs()
 
     def blur_chi2(self) -> torch.Tensor:
         if not self.fit_blur:
             return torch.zeros((), dtype=torch.float64, device=self.blur_u.device)
-        return (torch.nn.functional.softplus(self.blur_u) / self.blur_prior_px ** 2).sum()
+        return (self.blur_u ** 2).sum()
 
     def _anchor(self, img: torch.Tensor) -> torch.Tensor:
         if not self.image_anchor:
