@@ -217,7 +217,9 @@ def _row_fits(im: np.ndarray, an, min_signal_frac: float = 0.005):
 def _fit_sensitivity(popts: dict, lines: torch.Tensor) -> torch.Tensor:
     """(R, nx) d x0 / d lineout of the least-squares Gaussian fit at its optimum, by
     the implicit function theorem: dθ*/dy = (JᵀJ + Σ_i r_i ∇²f_i)⁻¹ Jᵀ (r = f − y),
-    first row. lines: (R, nx) the fitted lineouts (rows of popts, in order)."""
+    first row. lines: (R, nx) the fitted lineouts (rows of popts, in order). A pseudo-inverse
+    instead of a solve: a degenerate row fit (e.g. a faint, blurred row) has a singular
+    Hessian and gets the minimum-norm sensitivity instead of failing the whole fit."""
     from torch.func import hessian, jacrev, vmap
 
     x = torch.arange(lines.shape[-1], dtype=torch.float64, device=lines.device)
@@ -233,7 +235,7 @@ def _fit_sensitivity(popts: dict, lines: torch.Tensor) -> torch.Tensor:
     J = vmap(jacrev(f), in_dims=(0, None))(th, x)                     # (R, nx, 4)
     r = vmap(f, in_dims=(0, None))(th, x) - lines.double()           # (R, nx)
     A = J.transpose(1, 2) @ J + vmap(hessian(g), in_dims=(0, None, 0))(th, x, r)
-    return torch.linalg.solve(A, J.transpose(1, 2))[:, 0, :]          # (R, nx)
+    return (torch.linalg.pinv(A) @ J.transpose(1, 2))[:, 0, :]        # (R, nx)
 
 
 def _interp_matrix(finite: np.ndarray) -> np.ndarray:
