@@ -1,0 +1,44 @@
+/home/rwu4/photoinjector-rl/XTCAV_analysis/yiheng/DAQ_analysis_class/analysis.py:106: OptimizeWarning: Covariance of the parameters could not be estimated
+  px, pcov = optimize.curve_fit(fg, x, y, p0=p0, sigma=sigma, maxfev=maxfev)
+/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/scripts/stageD2_jacobian_alignment.py:73: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  raw0 = float(m.delta_raw[i])
+  J[L1EnergyOffset] |col| 0.0988
+  J[L2EnergyOffset] |col| 0.567
+  J[L3EnergyOffset] |col| 0.738
+  J[S1ELkG] |col| 0.303
+  J[S2ELkG] |col| 0.807
+  J[S3ELkG] |col| 0.0564
+  J[Q5FFkG] |col| 0.15
+  J[Q4FFkG] |col| 0.146
+  J[Q3FFkG] |col| 0.286
+  J[S1EL_xOffset] |col| 0.359
+  J[S1EL_yOffset] |col| 0.74
+  J[S2EL_xOffset] |col| 0.816
+  J[S2EL_yOffset] |col| 0.723
+  J[S2ER_xOffset] |col| 0.491
+  J[S2ER_yOffset] |col| 0.192
+  J[S1ER_xOffset] |col| 0.274
+  J[S1ER_yOffset] |col| 0.193
+  J[L0BPhaseSet] |col| 0.0454
+  J[L0BEnergyOffset] |col| 0.0163
+  J[laser_timing_ps] |col| 0.101
+  J[GUNF:rf_field_scale] |col| 0.0787
+  J[GUNF:theta0_deg] |col| 0.0587
+  J[distgen:t_dist:dists:d2:avg_t:value] |col| 0.149
+  J[drive_fraction] |col| 0.422
+  J[distgen:total_charge:value] |col| 0.0165
+  J[L0AF_phase_offset_deg] |col| 0.0228
+  J[SOL10111:solenoid_field_scale] |col| 0.0156
+  J[distgen:r_dist:sigma_xy:value] |col| 0.0176
+  J[distgen:r_dist:truncation_radius:value] |col| 0.0196
+  J[distgen:start:MTE:value] |col| 0.0117
+  J[sigma_t_ps] |col| 0.00865
+  J[l1_shift] |col| 0.209 per deg
+  J[l2_shift] |col| 0.272 per deg
+register: kept 7/33; low leverage (<0.05): ['L1EnergyOffset', 'S1ELkG', 'S2ELkG', 'S3ELkG', 'Q5FFkG', 'Q4FFkG', 'Q3FFkG', 'L0BPhaseSet', 'L0BEnergyOffset', 'laser_timing_ps', 'GUNF:rf_field_scale', 'GUNF:theta0_deg', 'distgen:total_charge:value', 'L0AF_phase_offset_deg', 'SOL10111:solenoid_field_scale', 'distgen:r_dist:sigma_xy:value', 'distgen:r_dist:truncation_radius:value', 'distgen:start:MTE:value', 'sigma_t_ps']
+injector12     explained 0.044  best du laser_timing_ps=-2.16 GUNF:rf_field_scale=-2.19 GUNF:theta0_deg=-0.23 avg_t=+0.01 drive_fraction=-0.04 total_charge=-2.60 L0AF_phase_offset_deg=+5.37 SOL10111:solenoid_field_scale=+2.36 sigma_xy=-2.53 truncation_radius=-2.46 MTE=-5.32 sigma_t_ps=+3.49
+injector+L0B   explained 0.050  best du laser_timing_ps=-4.38 GUNF:rf_field_scale=-4.37 GUNF:theta0_deg=+0.22 avg_t=+0.28 drive_fraction=-0.02 total_charge=-0.38 L0AF_phase_offset_deg=+2.43 SOL10111:solenoid_field_scale=-0.46 sigma_xy=-1.19 truncation_radius=-0.54 MTE=-7.11 sigma_t_ps=+3.65 L0BPhaseSet=+2.43 L0BEnergyOffset=+4.71
+active6        explained 0.026  best du laser_timing_ps=-0.51 GUNF:rf_field_scale=-0.51 GUNF:theta0_deg=-0.37 avg_t=+0.13 drive_fraction=-0.07 total_charge=-0.66
+linac17        explained 0.128  best du L1EnergyOffset=-0.06 L2EnergyOffset=+0.32 L3EnergyOffset=-0.21 S1ELkG=-0.05 S2ELkG=+0.05 S3ELkG=+0.11 Q5FFkG=-0.51 Q4FFkG=+0.44 Q3FFkG=-0.21 S1EL_xOffset=+0.17 S1EL_yOffset=-0.20 S2EL_xOffset=+0.10 S2EL_yOffset=-0.18 S2ER_xOffset=+0.25 S2ER_yOffset=-0.09 S1ER_xOffset=+0.49 S1ER_yOffset=-0.12
+all31          explained 0.173  best du L1EnergyOffset=+0.07 L2EnergyOffset=+0.19 L3EnergyOffset=-0.14 S1ELkG=+0.18 S2ELkG=+0.03 S3ELkG=+0.53 Q5FFkG=-0.67 Q4FFkG=+0.66 Q3FFkG=-0.30 S1EL_xOffset=+0.09 S1EL_yOffset=-0.27 S2EL_xOffset=+0.03 S2EL_yOffset=-0.24 S2ER_xOffset=+0.20 S2ER_yOffset=-0.16 S1ER_xOffset=+0.45 S1ER_yOffset=-0.10 L0BPhaseSet=+2.98 L0BEnergyOffset=+7.82 laser_timing_ps=-3.98 GUNF:rf_field_scale=-4.25 GUNF:theta0_deg=+0.84 avg_t=-0.47 drive_fraction=-0.01 total_charge=-0.15 L0AF_phase_offset_deg=+0.93 SOL10111:solenoid_field_scale=-0.75 sigma_xy=+2.04 truncation_radius=-4.64 MTE=-6.51 sigma_t_ps=+3.17

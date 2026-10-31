@@ -1,0 +1,36 @@
+  off-shot gate (amp < 1.0): 52/400 kept (mean_on_amp 22.01)
+  dead-frame floor: 1.01e+05 counts (0.2 x median 5.05e+05)
+  step   1 (scan +0.00 deg): n+=20 n-=16 off=5 floors 0.0634/0.0561 off_xrms 192um
+  step   2 (scan +0.25 deg): n+=16 n-=28 off=8 floors 0.0962/0.0929 off_xrms 187um
+  step   3 (scan +0.50 deg): n+=12 n-=23 off=10 floors 0.0602/0.0950 off_xrms 188um
+  step   4 (scan +0.75 deg): n+=14 n-=18 off=8 floors 0.1563/0.1072 off_xrms 177um
+  step   5 (scan +1.00 deg): n+=27 n-=12 off=10 floors 0.0772/0.1672 off_xrms 176um
+  step   6 (scan +1.25 deg): n+=26 n-=10 off=10 floors 0.0684/0.1948 off_xrms 172um
+  step   7 (scan +1.50 deg): n+=19 n-=11 off=12 floors 0.2421/0.2602 off_xrms 169um
+  step   8 (scan +1.75 deg): n+=14 n-=21 off=11 floors 0.3465/0.0937 off_xrms 162um
+  step   9 (scan +2.00 deg): n+=13 n-=20 off=11 floors 0.0820/0.1350 off_xrms 167um
+  step  10 (scan +2.25 deg): n+=9 n-=10 off=9 floors 0.0992/0.1906 off_xrms 166um
+  step  11 (scan +2.50 deg): n+=9 n-=14 off=7 floors 0.2215/0.0721 off_xrms 171um
+  step  12 (scan +2.75 deg): n+=24 n-=10 off=3 floors 0.0616/0.2017 off_xrms 176um
+  step  13 (scan +3.00 deg): n+=23 n-=5 off=2 floors 0.0998/0.1529 off_xrms 189um
+  step  14 (scan +3.25 deg): n+=16 n-=15 off=3 floors 0.0769/0.1356 off_xrms 186um
+  step  15 (scan +3.50 deg): n+=14 n-=11 off=5 floors 0.0292/0.1155 off_xrms 176um
+  step  16 (scan +3.75 deg): n+=16 n-=13 off=7 floors 0.1227/0.1045 off_xrms 175um
+  step  17 (scan +4.00 deg): n+=20 n-=13 off=10 floors 0.1145/0.0804 off_xrms 171um
+  step  18 (scan +4.25 deg): n+=11 n-=10 off=12 floors 0.1680/0.2719 off_xrms 172um
+  step  19 (scan +4.50 deg): n+=17 n-=31 off=10 floors 0.1139/0.0450 off_xrms 169um
+  step  20 (scan +4.75 deg): n+=16 n-=12 off=10 floors 0.0727/0.0523 off_xrms 172um
+  step  21 (scan +5.00 deg): n+=21 n-=8 off=9 floors 0.1441/0.1336 off_xrms 173um
+  step  22 (scan +5.25 deg): n+=6 n-=7 off=5 floors 0.3862/0.1268 off_xrms 177um
+  step  23 (scan +5.50 deg): n+=7 n-=18 off=5 floors 0.0863/0.1251 off_xrms 178um
+  step  24 (scan +5.75 deg): n+=13 n-=20 off=6 floors 0.2007/0.0666 off_xrms 177um
+  step  25 (scan +6.00 deg): n+=8 n-=20 off=4 floors 0.1264/0.0573 off_xrms 177um
+  step  26 (scan +6.25 deg): n+=10 n-=10 off=3 floors 0.1847/0.1413 off_xrms 177um
+  step  27 (scan +6.50 deg): n+=11 n-=9 off=4 floors 0.0936/0.0898 off_xrms 185um
+  step  28 (scan +6.75 deg): n+=19 n-=13 off=3 floors 0.1566/0.1918 off_xrms 198um
+  step  29 (scan +7.00 deg): n+=13 n-=8 off=6 floors 0.0850/0.0561 off_xrms 226um
+  step  30 (scan +7.25 deg): n+=22 n-=10 off=9 floors 0.1434/0.0507 off_xrms 220um
+  step  31 (scan +7.50 deg): n+=18 n-=12 off=9 floors 0.1675/0.1677 off_xrms 220um
+  step  32 (scan +7.75 deg): n+=9 n-=16 off=8 floors 0.2044/0.1216 off_xrms 221um
+  step  33 (scan +8.00 deg): n+=12 n-=25 off=7 floors 0.1331/0.1052 off_xrms 223um
+-> /home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/results/stageD2/15673/targets_rowref_none.npz

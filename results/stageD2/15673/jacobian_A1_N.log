@@ -1,0 +1,39 @@
+/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/scripts/stageD2_jacobian_alignment.py:71: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  raw0 = float(m.delta_raw[i])
+  J[L1EnergyOffset] |col| 0.0815
+  J[L2EnergyOffset] |col| 0.591
+  J[L3EnergyOffset] |col| 0.757
+  J[S1ELkG] |col| 0.228
+  J[S2ELkG] |col| 0.55
+  J[S3ELkG] |col| 0.0513
+  J[Q5FFkG] |col| 0.128
+  J[Q4FFkG] |col| 0.22
+  J[Q3FFkG] |col| 0.425
+  J[S1EL_xOffset] |col| 0.443
+  J[S1EL_yOffset] |col| 0.676
+  J[S2EL_xOffset] |col| 0.817
+  J[S2EL_yOffset] |col| 0.62
+  J[S2ER_xOffset] |col| 0.627
+  J[S2ER_yOffset] |col| 0.208
+  J[S1ER_xOffset] |col| 0.404
+  J[S1ER_yOffset] |col| 0.188
+  J[L0BPhaseSet] |col| 0.0575
+  J[L0BEnergyOffset] |col| 0.00442
+  J[laser_timing_ps] |col| 0.125
+  J[GUNF:rf_field_scale] |col| 0.0892
+  J[GUNF:theta0_deg] |col| 0.0493
+  J[distgen:t_dist:dists:d2:avg_t:value] |col| 0.168
+  J[drive_fraction] |col| 0.545
+  J[distgen:total_charge:value] |col| 0.017
+  J[L0AF_phase_offset_deg] |col| 0.00847
+  J[SOL10111:solenoid_field_scale] |col| 0.00983
+  J[distgen:r_dist:sigma_xy:value] |col| 0.013
+  J[distgen:r_dist:truncation_radius:value] |col| 0.0112
+  J[distgen:start:MTE:value] |col| 0.0109
+  J[sigma_t_ps] |col| 0.00761
+injector12     explained 0.074  best du laser_timing_ps=-3.97 GUNF:rf_field_scale=-10.63 GUNF:theta0_deg=+9.03 avg_t=-2.51 drive_fraction=+0.03 total_charge=-6.69 L0AF_phase_offset_deg=+4.18 SOL10111:solenoid_field_scale=+10.91 sigma_xy=+2.25 truncation_radius=-10.78 MTE=+4.04 sigma_t_ps=-14.81
+injector+L0B   explained 0.137  best du laser_timing_ps=-12.76 GUNF:rf_field_scale=-20.43 GUNF:theta0_deg=+14.46 avg_t=-2.10 drive_fraction=+0.05 total_charge=+2.00 L0AF_phase_offset_deg=-1.58 SOL10111:solenoid_field_scale=+5.72 sigma_xy=+14.73 truncation_radius=+7.92 MTE=-10.33 sigma_t_ps=-4.86 L0BPhaseSet=+11.33 L0BEnergyOffset=+1.92
+active6        explained 0.020  best du laser_timing_ps=+0.16 GUNF:rf_field_scale=-1.26 GUNF:theta0_deg=+1.38 avg_t=-0.61 drive_fraction=-0.03 total_charge=-1.44
+linac17        explained 0.088  best du L1EnergyOffset=-0.15 L2EnergyOffset=+0.29 L3EnergyOffset=-0.27 S1ELkG=+0.51 S2ELkG=-0.26 S3ELkG=-0.33 Q5FFkG=-0.28 Q4FFkG=+0.07 Q3FFkG=-0.08 S1EL_xOffset=+0.19 S1EL_yOffset=-0.39 S2EL_xOffset=+0.07 S2EL_yOffset=-0.43 S2ER_xOffset=+0.28 S2ER_yOffset=+0.39 S1ER_xOffset=+0.45 S1ER_yOffset=+0.23
+all31          explained 0.227  best du L1EnergyOffset=+0.28 L2EnergyOffset=-0.12 L3EnergyOffset=-0.06 S1ELkG=+0.65 S2ELkG=-0.13 S3ELkG=-0.39 Q5FFkG=-0.01 Q4FFkG=-0.55 Q3FFkG=+0.11 S1EL_xOffset=+0.07 S1EL_yOffset=-0.57 S2EL_xOffset=+0.02 S2EL_yOffset=-0.63 S2ER_xOffset=+0.29 S2ER_yOffset=+0.36 S1ER_xOffset=+0.58 S1ER_yOffset=+0.18 L0BPhaseSet=+13.73 L0BEnergyOffset=+19.54 laser_timing_ps=-9.11 GUNF:rf_field_scale=-17.74 GUNF:theta0_deg=+13.98 avg_t=-3.79 drive_fraction=+0.04 total_charge=+6.32 L0AF_phase_offset_deg=-15.14 SOL10111:solenoid_field_scale=+2.26 sigma_xy=+8.09 truncation_radius=+1.82 MTE=-8.83 sigma_t_ps=-1.37

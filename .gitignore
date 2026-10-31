@@ -7,3 +7,7 @@ results/**/*.png
 results/**/*.h5
 !results/stageA/REPORT.md
 models/
+# Stage D2: generated CNF renders, S2E-derived targets, GPU-queue state and job logs
+results/stageD2/**/render/
+results/stageD2/**/logs/
+results/stageD2/**/targets_s2e_*.npz

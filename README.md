@@ -12,9 +12,18 @@ research context.
 |---|---|---|
 | A | differentiable XTCAVF→DTOTR transport, validated vs Bmad | **done** (`results/stageA/`) |
 | B | 23-dim XTCAVF-entrance surrogate campaign + retrain | **infrastructure done** — sweeps are Ryan's to run: `docs/stageB_runbook.md` |
-| C | sim-to-sim identifiability closed loop (CRN, MAP-prior λ calibration) | not started |
-| D | real-data fit (per-step target images, MAP δ fit) | not started |
+| C | sim-to-sim identifiability closed loop (CRN, MAP-prior λ calibration) | **done** (`results/stageC/REPORT.md`) |
+| D | real-data fit (per-step target images, MAP δ fit) | **done** (`results/stageD/15673/REPORT.md`) |
+| D2 | E300_15673 refit with the injector-aware C_B3_ema CNF: reachability, attribution, metrology | **done** (`docs/stageD2_log.md`) |
 | E | injector LPS DOFs / flow fine-tuning | deferred |
+
+Stage D2 entry points: `scripts/run_stageD2_reach.py` (one fit arm; arms and target
+conventions in its docstring), `scripts/stageD2_queue.sh` (two-GPU job queue over
+`results/stageD2/15673/logs/jobs.txt`), `scripts/make_s2e_probe.py` + `score_s2e_probe.py`
+(true Impact-T + Bmad renders at chosen machine states, incl. machine-like L2 scans) and
+`scripts/stageD2_*figure*.py`. Real targets: `results/stageD2/15673/targets_rowref_{clean,none}.npz`
+(`scripts/build_targets_variants.py`). The wide-box model bundle (`models/c_b3w_ema`) and the S2E
+probes (`data/s2e_*`) are local only.
 
 Stage B pieces: `twobunch-s2e-rl` gained the `xtcav23` sweep set (`sweep_params.py`),
 config-driven `treaty_points`/`fixed_overrides` in `run_sweep.py`, a `--treaty-point`

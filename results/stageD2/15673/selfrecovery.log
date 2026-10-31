@@ -1,0 +1,83 @@
+/home/rwu4/photoinjector-rl/xtcav-gpsr-tuning/src/xtcav_gpsr_tuning/fit.py:693: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  tot += float(l)
+{
+ "truth": {
+  "S2EL_xOffset": 0.0003,
+  "S1EL_yOffset": -0.0003,
+  "L2EnergyOffset": 8000000.0,
+  "laser_timing_ps": 0.15,
+  "GUNF:theta0_deg": 0.3,
+  "drive_fraction": 0.71,
+  "distgen:start:MTE:value": 430.0
+ },
+ "latent_truth": false,
+ "floor_truth_model_vs_targets": NaN,
+ "null_img": NaN,
+ "fit_img": NaN,
+ "recovery": {
+  "S2EL_xOffset": {
+   "truth_delta": 0.0003,
+   "fit_delta": 0.0,
+   "ratio": 0.0,
+   "truth_pull": 0.39999999999999997
+  },
+  "S1EL_yOffset": {
+   "truth_delta": -0.0003,
+   "fit_delta": 0.0,
+   "ratio": -0.0,
+   "truth_pull": -0.39999999999999997
+  },
+  "L2EnergyOffset": {
+   "truth_delta": 8000000.0,
+   "fit_delta": 0.0,
+   "ratio": 0.0,
+   "truth_pull": 1.0
+  },
+  "laser_timing_ps": {
+   "truth_delta": 0.15,
+   "fit_delta": 0.0,
+   "ratio": 0.0,
+   "truth_pull": 1.4999999999999998
+  },
+  "GUNF:theta0_deg": {
+   "truth_delta": 0.3,
+   "fit_delta": 0.0,
+   "ratio": 0.0,
+   "truth_pull": 1.2
+  },
+  "drive_fraction": {
+   "truth_delta": -0.040000000000000036,
+   "fit_delta": 0.0,
+   "ratio": -0.0,
+   "truth_pull": -1.1560693641618507
+  },
+  "distgen:start:MTE:value": {
+   "truth_delta": 430.0,
+   "fit_delta": 0.0,
+   "ratio": 0.0,
+   "truth_pull": 43.0
+  }
+ },
+ "walls": [],
+ "top_pulls": {
+  "L1EnergyOffset": 0.0,
+  "L2EnergyOffset": 0.0,
+  "L3EnergyOffset": 0.0,
+  "S1ELkG": 0.0,
+  "S2ELkG": 0.0,
+  "S3ELkG": 0.0,
+  "Q5FFkG": 0.0,
+  "Q4FFkG": 0.0,
+  "Q3FFkG": 0.0,
+  "S1EL_xOffset": 0.0
+ },
+ "nu_y": 1.0,
+ "dtr": [
+  0.0,
+  0.0,
+  0.0
+ ],
+ "l1_shift_deg": 0.0,
+ "l2_shift_deg": 0.0
+}
