@@ -12,3 +12,7 @@ results/stageD2/**/render/
 results/stageD2/**/logs/
 results/stageD2/**/targets_s2e_*.npz
 results/stageD2/**/shot_means_*.npz
+# Stage D3: renders, job logs, S2E scratch beams (fit/summary JSON is covered by the results JSON rule)
+results/stageD3/render/
+results/stageD3/logs/
+results/stageD3/blen_proxy/scratch/

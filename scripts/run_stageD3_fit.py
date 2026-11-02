@@ -220,7 +220,7 @@ def run_null(device):
         print(f"  N_full TV {r}: " + " ".join(f"{tv[i]:.2f}" for i in rows), flush=True)
 
 
-def run_arm(arm, restarts, iters, device):
+def run_arm(arm, restarts, iters, device, seed0=0):
     if arm == "N_full":
         return run_null(device)
     runs, mode, drift, held, run_gain = arm_spec(arm)
@@ -229,10 +229,11 @@ def run_arm(arm, restarts, iters, device):
            "run_gain": run_gain,
            "model": MODEL, "l1_sigma_deg": L1_SIGMA_DEG, "l2_sigma_deg": L2_SIGMA_DEG,
            "meta": meta, "fits": [], "provenance": provenance(REPO / "configs" / "fit_stageD2W_15673.yaml")}
-    path = OUT / "fits" / f"{arm}.json"
+    tag = arm if seed0 == 0 else f"{arm}_s{seed0}"   # extra restarts go to their own file
+    path = OUT / "fits" / f"{tag}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     best, best_loss = None, np.inf
-    for s in range(restarts):
+    for s in range(seed0, seed0 + restarts):
         rng = np.random.default_rng(1000 + s) if s else None
         m, cfg_d2 = make_model(cfg, setup, base, ridx, scan, device, seed=s, rng=rng, run_gain=run_gain)
         t0 = time.time()
@@ -275,7 +276,7 @@ def run_arm(arm, restarts, iters, device):
     out["score_full"] = {**sc, "seed": best["seed"]}
     path.write_text(json.dumps(out, indent=1))
     (OUT / "render").mkdir(exist_ok=True)
-    np.savez_compressed(OUT / "render" / f"{arm}.npz", imgs=imgs.astype(np.float32),
+    np.savez_compressed(OUT / "render" / f"{tag}.npz", imgs=imgs.astype(np.float32),
                         meta=np.array(json.dumps(sc["meta"])))
     tv = np.asarray(sc["per_image_tv"]).mean(0)
     for r in (runs if held is None else (held,)):
@@ -288,11 +289,12 @@ def main():
     ap.add_argument("--arms", nargs="+", required=True)
     ap.add_argument("--restarts", type=int, default=2)
     ap.add_argument("--iters", type=int, default=ITERS)
+    ap.add_argument("--seed0", type=int, default=0, help="first restart seed (>0 writes <arm>_s<seed0>.json)")
     args = ap.parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     for arm in args.arms:
         t0 = time.time()
-        run_arm(arm, args.restarts, args.iters, device)
+        run_arm(arm, args.restarts, args.iters, device, args.seed0)
         print(f"{arm} done in {(time.time() - t0) / 60:.1f} min", flush=True)
 
 

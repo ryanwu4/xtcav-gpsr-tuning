@@ -171,7 +171,7 @@ def figure(res, path):
         ax.plot(sv, rp, "o-", color="#2563EB", ms=4, label="real (median, IQR)")
         ax.plot(sv, sp, "s-", color="#EA8600", ms=4, label="simulation (aligned)")
         ax.axhline(FLOOR_UM, color="#6B7689", lw=0.8, ls="--")
-        ax.text(sv[-1], FLOOR_UM, "bands merge below", ha="right", va="bottom", fontsize=8,
+        ax.text(sv[0] + 0.1, FLOOR_UM, "bands merge below", ha="left", va="bottom", fontsize=8,
                 color="#6B7689")
         ax.set_title(f"{TITLES[ds]}\nfit window: scan 0–{sv[keep][-1]:.2f}° "
                      f"({keep.sum()} of {len(sv)} steps)", fontsize=10)
@@ -200,20 +200,24 @@ def figure_mismatch(res, path):
         rp, sp = np.asarray(r["real_plus"]), np.asarray(r["sim_plus"])
         pre = np.arange(len(rp)) <= r["i_min"]
         keep = np.asarray(r["keep"])
-        m = pre & np.isfinite(sp) & np.isfinite(rp)
+        m = pre & np.isfinite(sp) & np.isfinite(rp) & (rp >= FLOOR_UM)  # where the gate can measure
         err = 100 * (sp - rp) / rp
         c = RUN_COLORS[ds]
         ax.plot(rp[m], err[m], "-", color=c, lw=1.0, alpha=0.6)
         ax.plot(rp[m & keep], err[m & keep], "o", color=c, ms=6, label=RUN_SHORT[ds])
         ax.plot(rp[m & ~keep], err[m & ~keep], "o", mfc="white", mec=c, ms=6)
     ax.axhspan(-15, 15, color="#8A93A6", alpha=0.12, lw=0)
-    ax.axvline(FLOOR_UM, color="#6B7689", lw=0.8, ls="--")
+    ax.text(380, 15, "±15%", va="bottom", fontsize=8, color="#6B7689")
     ax.set_xscale("log")
+    ax.set_xticks([50, 100, 200, 300])
+    ax.set_xticklabels(["50", "100", "200", "300"])
+    ax.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
     ax.set_xlabel("real bunch separation [µm]  (smaller = more compressed)")
     ax.set_ylabel("simulation − real [% of real]")
     ax.invert_xaxis()
     ax.legend(fontsize=8.5, loc="lower left", title="filled = in the fit window", title_fontsize=8)
-    ax.set_title("FACET2-S2E separation error by setpoint (+ streak, before full compression)", fontsize=10)
+    ax.set_title("Simulated bunch separation error at three machine setpoints\n"
+                 "(FACET2-S2E vs real, + streak, steps where the separation is measurable)", fontsize=10)
     fig.tight_layout()
     fig.savefig(path, dpi=140)
     plt.close(fig)
