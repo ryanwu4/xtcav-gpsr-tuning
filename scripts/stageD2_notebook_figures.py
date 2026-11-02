@@ -118,12 +118,12 @@ def fig_pipeline(real):
 
 
 def fig_chain():
-    rows = [("No fit: design settings", fit("A1_B")["null"]["img"], LIGHT),
+    rows = [("No fit: new surrogate at design settings", fit("A1_B")["null"]["img"], LIGHT),
             ("Old surrogate, Stage D's one-sided comparison", fit("X1_D")["final_img_loss"], GRAY),
             ("Old surrogate, comparison fixed", fit("X1_B")["final_img_loss"], GRAY),
             ("New surrogate, linac + final-focus knobs only", fit("A4_B")["final_img_loss"], BLUE),
             ("  + drive/witness charge split", fit("A7_B")["final_img_loss"], BLUE),
-            ("  + the other 13 injector knobs", fit("A1_B")["final_img_loss"], BLUE),
+            ("  + the other 13 injector and L0B knobs", fit("A1_B")["final_img_loss"], BLUE),
             ("  + TCAV calibration and L2 scan gain", fit("A1calg_B")["final_img_loss"], BLUE),
             ("  + fitted image blur", fit("A1calgr_B")["final_img_loss"], BLUE)]
     fig, ax = plt.subplots(figsize=(7.6, 3.6))
@@ -302,7 +302,8 @@ def fig_metrology():
     labels = []
     for k, v in enumerate(reg["kept_directions"]):
         top = np.argsort(np.abs(v))[::-1][:2]
-        labels.append(f"{k + 1}: {plain(names[top[0]])}, {plain(names[top[1]])}")
+        sg = ["+" if v[t] > 0 else "−" for t in top]
+        labels.append(f"{k + 1}: {sg[0]}{plain(names[top[0]])}  {sg[1]}{plain(names[top[1]])}")
     y = np.arange(len(labels))[::-1]
     fig, axes = plt.subplots(1, 2, figsize=(9, 3.6), sharey=True, sharex=True)
     for ax, (a, b, title) in zip(axes, [("even", "odd", "Control: fit on even vs odd steps"),
