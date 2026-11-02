@@ -1,5 +1,6 @@
-"""Stage-D2: E300_15673 target variants that differ ONLY in the off-shot
-row-distortion correction applied to the real frames.
+"""Stage-D2: real target variants that differ ONLY in the off-shot
+row-distortion correction applied to the real frames (E300_15673 by default;
+--dataset builds the same for the other 2026-04-15 scans, Stage D3).
 
   deployed  the Stage D targets (results/stageD/15673/targets.npz): per-step
             references from the deployed classifier's ix_off, which the 08-07
@@ -11,7 +12,11 @@ row-distortion correction applied to the real frames.
 
 Everything else is build_targets verbatim. CPU, slac-rl:
 
-  PYTHONPATH=$PWD/src MPLBACKEND=Agg python scripts/build_targets_variants.py --variant clean
+  PYTHONPATH=$PWD/src MPLBACKEND=Agg python scripts/build_targets_variants.py --variant clean \
+    [--dataset E300_15671]
+
+-> results/stageD2/15673/targets_rowref_<variant>.npz for E300_15673,
+   results/stageD3/<number>/targets_rowref_<variant>.npz for the others
 """
 
 import argparse
@@ -51,6 +56,7 @@ def clean_refs(a, cls, steps_per_shot, pool=2, off_amp_max=1.0):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--variant", choices=["clean", "none"], required=True)
+    ap.add_argument("--dataset", default="E300_15673")
     args = ap.parse_args()
     orig = tr.load_dataset
 
@@ -60,9 +66,10 @@ def main():
         return ds, cls, sps, a, refs
 
     tr.load_dataset = patched
-    res = tr.build_targets("E300_15673")
-    OUT.mkdir(parents=True, exist_ok=True)
-    path = OUT / f"targets_rowref_{args.variant}.npz"
+    res = tr.build_targets(args.dataset)
+    out = OUT if args.dataset == "E300_15673" else OUT.parents[1] / "stageD3" / args.dataset.rsplit("_", 1)[1]
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"targets_rowref_{args.variant}.npz"
     np.savez_compressed(path, **res)
     print(f"-> {path}")
 

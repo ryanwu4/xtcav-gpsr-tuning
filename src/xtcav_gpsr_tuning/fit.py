@@ -332,7 +332,8 @@ class ForwardModel(torch.nn.Module):
                  l1ref_nuisance: bool = False, latent_mode: str | None = None,
                  resid_tau: float = 0.3, row_center: bool = False,
                  scan_deg: torch.Tensor | None = None, l2_gain_sigma: float = 0.25,
-                 fit_blur: bool = False, blur_prior_px: float = 5.0):
+                 fit_blur: bool = False, blur_prior_px: float = 5.0,
+                 run_idx: torch.Tensor | None = None):
         """Stage-D extensions (all default-off, Stage-C behavior unchanged):
         image_anchor — render anchor='none' then COM-center the IMAGE (the shared
           Stage-D anchor op; particle-space anchors don't exist on the real side);
@@ -360,7 +361,11 @@ class ForwardModel(torch.nn.Module):
           prior (g - 1) ~ N(0, l2_gain_sigma) under λ;
         fit_blur — a fitted Gaussian resolution on the rendered screen image, one σ per
           axis (energy rows, time/x columns) for the streaked and for the TCAV-off images
-          separately, prior σ ~ N(0, blur_prior_px) per axis under the calibration λ."""
+          separately, prior σ ~ N(0, blur_prior_px) per axis under the calibration λ.
+
+        Stage-D3 extension (several scans in one batch; default-off):
+        run_idx — (B,) integer run index of every base row: the L1 and L2 shifts become one
+          per run (shape (n_runs,)), everything else stays shared. base_off must equal base."""
         super().__init__()
         self.s = setup
         self.register_buffer("base", base_knobs_norm.to(setup.device))  # (B,n_knob)
@@ -378,13 +383,20 @@ class ForwardModel(torch.nn.Module):
         self._l2_col = keys.index("L2PhaseSet")
         self._l2_span_deg = float(setup.norm["knob_high"][self._l2_col]
                                   - setup.norm["knob_low"][self._l2_col])
+        if run_idx is not None:
+            run_idx = torch.as_tensor(run_idx, dtype=torch.long, device=setup.device)
+            assert run_idx.shape == (base_knobs_norm.shape[0],), "one run index per base row"
+            self.register_buffer("run_idx", run_idx)
+        else:
+            self.run_idx = None
+        shift_shape = () if run_idx is None else (int(run_idx.max()) + 1,)
         self.l2_shift_deg = torch.nn.Parameter(
-            torch.zeros((), dtype=torch.float64), requires_grad=l2ref_nuisance)
+            torch.zeros(shift_shape, dtype=torch.float64), requires_grad=l2ref_nuisance)
         self._l1_col = keys.index("L1PhaseSet")
         self._l1_span_deg = float(setup.norm["knob_high"][self._l1_col]
                                   - setup.norm["knob_low"][self._l1_col])
         self.l1_shift_deg = torch.nn.Parameter(
-            torch.zeros((), dtype=torch.float64), requires_grad=l1ref_nuisance)
+            torch.zeros(shift_shape, dtype=torch.float64), requires_grad=l1ref_nuisance)
         # L2 scan gain (g - 1), fitted only when the scan offsets are given
         self.l2_gain_sigma = float(l2_gain_sigma)
         if scan_deg is not None:
@@ -498,17 +510,23 @@ class ForwardModel(torch.nn.Module):
         # with zero gradient and never reached its lower edge — port review #4)
         return torch.where(t >= 0, t * self.s.bound_hi, t * lo)
 
+    def _per_row(self, shift: torch.Tensor) -> torch.Tensor:
+        """A shift parameter as applied to the base rows: the scalar itself, or each row's
+        run entry (Stage D3, run_idx)."""
+        return shift if self.run_idx is None else shift[self.run_idx]
+
     def knobs(self, base: torch.Tensor | None = None) -> torch.Tensor:
         k = (self.base if base is None else base).clone().to(torch.float32)
+        assert self.run_idx is None or k.shape[0] == self.run_idx.shape[0]
         d = self.delta_norm.to(torch.float32)
         k[:, self.s.knob_index] = (k[:, self.s.knob_index] + d).clamp(0.0, 1.0)
-        if self.l2_shift_deg.requires_grad or float(self.l2_shift_deg) != 0.0:
+        if self.l2_shift_deg.requires_grad or bool((self.l2_shift_deg != 0.0).any()):
             k[:, self._l2_col] = (k[:, self._l2_col]
-                                  + (self.l2_shift_deg / self._l2_span_deg
+                                  + (self._per_row(self.l2_shift_deg) / self._l2_span_deg
                                      ).to(torch.float32)).clamp(0.0, 1.0)
-        if self.l1_shift_deg.requires_grad or float(self.l1_shift_deg) != 0.0:
+        if self.l1_shift_deg.requires_grad or bool((self.l1_shift_deg != 0.0).any()):
             k[:, self._l1_col] = (k[:, self._l1_col]
-                                  + (self.l1_shift_deg / self._l1_span_deg
+                                  + (self._per_row(self.l1_shift_deg) / self._l1_span_deg
                                      ).to(torch.float32)).clamp(0.0, 1.0)
         if self.scan_deg is not None:
             k[:, self._l2_col] = (k[:, self._l2_col]
@@ -801,7 +819,8 @@ def _stage_d2_state(model) -> dict:
     walls += [c for c, (a, b) in u_ph.items() if a <= eps or b >= 1 - eps]
     with torch.no_grad():
         blur = model.blur_sigma_px().cpu().numpy()
-    return {"l1_shift_deg": float(model.l1_shift_deg),
+    l1 = model.l1_shift_deg.detach()
+    return {"l1_shift_deg": float(l1) if l1.dim() == 0 else l1.cpu().tolist(),
             "l2_gain": 1.0 + float(model.l2_gain_m1),
             "blur_px": ({"streak_energy": float(blur[0, 0]), "streak_time": float(blur[0, 1]),
                          "off_energy": float(blur[1, 0]), "off_x": float(blur[1, 1])}
@@ -831,10 +850,10 @@ def _nuisance_prior(model, l2ref_sigma_deg=0.3, nu_y_sigma_ln=None,
     should: a deviation of σ costs exactly as much as a knob at 1σ_j."""
     l = torch.zeros((), dtype=torch.float64, device=model.base.device)
     if latent:  # latent=False: the calibration-only terms (ν_y, δ_tr, σ_δ, ε_x)
-        if model.l2_shift_deg.requires_grad:
-            l = l + (model.l2_shift_deg / l2ref_sigma_deg) ** 2
+        if model.l2_shift_deg.requires_grad:  # .sum(): one entry per run in Stage D3
+            l = l + ((model.l2_shift_deg / l2ref_sigma_deg) ** 2).sum()
         if model.l1_shift_deg.requires_grad:
-            l = l + (model.l1_shift_deg / l1ref_sigma_deg) ** 2
+            l = l + ((model.l1_shift_deg / l1ref_sigma_deg) ** 2).sum()
         if model.l2_gain_m1.requires_grad:
             l = l + (model.l2_gain_m1 / model.l2_gain_sigma) ** 2
         # beam latent (Stage D2): the model's own p(s|knobs), same χ² units
