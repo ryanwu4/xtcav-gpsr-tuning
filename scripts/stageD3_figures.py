@@ -102,7 +102,8 @@ def figure_error(sel):
     axes[0, 0].set_ylabel("image error (TV, 0 = identical, 2 = disjoint)")
     h, lab = axes[0, 0].get_legend_handles_labels()
     fig.legend(h, lab, loc="lower center", ncol=3, fontsize=8.5, frameon=False,
-               title="filled = in the fit window, open = held out", title_fontsize=8.5)
+               title="filled = window steps; open = outside the window (fitted in the left and middle "
+                     "panels, held out in the right panel)", title_fontsize=8.5)
     fig.tight_layout(rect=(0, 0.11, 1, 1))
     fig.savefig(FIG / "error_by_setpoint.png", dpi=140)
     plt.close(fig)
