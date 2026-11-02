@@ -44,9 +44,9 @@ RUNS = {  # dataset: (sim run tag, L2 ref of that sim run [deg]); all at the rea
     "TEST_15668": ("l2ref-40.35_value_match", -40.35),
     "E300_15673": ("l2ref-38.00_value_match", -38.0),
 }
-TITLES = {"E300_15671": "E300_15671: deep compression (L1 ≈ −26°)",
-          "TEST_15668": "TEST_15668: middle (L1 ≈ −23.7°)",
-          "E300_15673": "E300_15673: least compressed (L1 ≈ −20°)"}
+TITLES = {"E300_15671": "E300_15671: BC11 most compressed (L1 ≈ −26°)",
+          "TEST_15668": "TEST_15668: BC11 middle (L1 ≈ −23.7°)",
+          "E300_15673": "E300_15673: BC11 least compressed (L1 ≈ −20°)"}
 FLOOR_UM, ABS_TOL_UM, REL_TOL, SLOPE_FACTOR, RUN_FAIL = 50.0, 20.0, 0.15, 2.0, 3
 
 
@@ -190,8 +190,9 @@ def figure(res, path):
 
 
 RUN_COLORS = {"E300_15671": "#eb6834", "TEST_15668": "#1baf7a", "E300_15673": "#2a78d6"}
-RUN_SHORT = {"E300_15671": "15671 (deep, L1 ≈ −26°)", "TEST_15668": "15668 (middle, L1 ≈ −23.7°)",
-             "E300_15673": "15673 (least, L1 ≈ −20°)"}
+RUN_SHORT = {"E300_15671": "15671 (BC11 most compressed, L1 ≈ −26°)",
+             "TEST_15668": "15668 (BC11 middle, L1 ≈ −23.7°)",
+             "E300_15673": "15673 (BC11 least compressed, L1 ≈ −20°)"}
 
 
 def figure_mismatch(res, path):

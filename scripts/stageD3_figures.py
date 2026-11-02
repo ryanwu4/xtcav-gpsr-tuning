@@ -35,9 +35,9 @@ from stageD3_step_select import FLOOR_UM, RUN_COLORS  # noqa: E402
 OUT = REPO / "results" / "stageD3"
 FIG = OUT / "figures"
 DS = {"15668": "TEST_15668", "15671": "E300_15671", "15673": "E300_15673"}
-LABEL = {"15671": "15671: deep compression (L1 ≈ −26°)", "15668": "15668: middle (L1 ≈ −23.7°)",
-         "15673": "15673: least compressed (L1 ≈ −20°)"}
-ORDER = ("15671", "15668", "15673")   # deep -> least compressed
+LABEL = {"15671": "15671: BC11 most compressed (L1 ≈ −26°)", "15668": "15668: BC11 middle (L1 ≈ −23.7°)",
+         "15673": "15673: BC11 least compressed (L1 ≈ −20°)"}
+ORDER = ("15671", "15668", "15673")   # most -> least compressed in BC11
 
 
 def load(arm):
