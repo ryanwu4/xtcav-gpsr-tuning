@@ -14,6 +14,9 @@ are a held-out residual):
   S<run>_win / S<run>_full   one run alone
   J_win / J_full              all three runs jointly
   J_win_drift                 J_win with the recorded per-step L1 deltas (BC11 feedback drift)
+  J_win_g                     J_win with one L2 scan gain PER RUN (extra arm: the July S2E slope
+                              ratio is 1.30 at 15673 but 0.93 at 15668, so g ~ 0.8 may be setpoint-
+                              specific)
   N_full                      no fit: golden injector + linac at the readback L1 / July L2 starts,
                               scored on all three full scans (the null)
   LORO<run>                   J_win on the other two runs, then ONLY the held-out run's L1 and
@@ -68,15 +71,15 @@ MODEL = "cnf_wide"        # models/c_b3w_ema
 
 
 def arm_spec(arm):
-    """(runs, step mode, drift, held-out run or None) of an arm name."""
+    """(runs, step mode, drift, held-out run or None, per-run gain) of an arm name."""
     if arm.startswith("LORO"):
         out = arm[4:]
-        return tuple(r for r in ORDER if r != out), "win", False, out
+        return tuple(r for r in ORDER if r != out), "win", False, out, False
     if arm.startswith("S"):
         run, mode = arm[1:].split("_")
-        return (run,), mode, False, None
+        return (run,), mode, False, None, False
     parts = arm.split("_")
-    return ORDER, parts[1], "drift" in parts, None
+    return ORDER, parts[1], "drift" in parts, None, "g" in parts
 
 
 def windows():
@@ -123,13 +126,14 @@ def build(runs, mode, drift, device):
     return cfg, setup, torch.cat(bases, 0), torch.tensor(ridx), torch.cat(scans), tgt, meta
 
 
-def make_model(cfg, setup, base, ridx, scan, device, seed=0, rng=None):
+def make_model(cfg, setup, base, ridx, scan, device, seed=0, rng=None, run_gain=False):
     cfg_d2 = yaml.safe_load(CFG_D2.read_text())
     s = subset_setup(setup, ALL31, cfg_d2)
     m = ForwardModel(s, base, cfg["voltage_V"] * VEFF_DEDICATED, n_particles=int(cfg["n_particles"]),
                      scan_deg=scan, anchor="none", image_anchor=True, l2ref_nuisance=True,
                      l1ref_nuisance=True, seed=seed, base_off_norm=base, latent_mode="mean",
-                     row_center=True, fit_blur=True, run_idx=ridx.to(device)).to(device)
+                     row_center=True, fit_blur=True, run_idx=ridx.to(device),
+                     run_gain=run_gain).to(device)
     if rng is not None:  # restart jitter, as Stage D / D2
         with torch.no_grad():
             m.delta_raw.copy_(torch.tensor(rng.normal(0.0, 0.3, size=m.delta_raw.shape)))
@@ -174,10 +178,10 @@ def load_state(m, st, runs_from=None, runs_to=None):
 
 
 @torch.no_grad()
-def score_full(st, runs, drift, device, fit_runs=None):
+def score_full(st, runs, drift, device, fit_runs=None, run_gain=False):
     """Render the FULL scans of `runs` at a fitted state: per-image TV, floors, renders."""
     cfg, setup, base, ridx, scan, tgt, meta = build(runs, "full", drift, device)
-    m, _ = make_model(cfg, setup, base, ridx, scan, device)
+    m, _ = make_model(cfg, setup, base, ridx, scan, device, run_gain=run_gain)
     load_state(m, st, fit_runs or list(runs), list(runs))
     parts = evaluate(m, tgt, cfg)
     imgs = []
@@ -191,7 +195,9 @@ def score_full(st, runs, drift, device, fit_runs=None):
 def summarize(m, res, runs):
     l1 = m.l1_shift_deg.detach().cpu().numpy().tolist()
     l2 = m.l2_shift_deg.detach().cpu().numpy().tolist()
+    g = m.l2_gain_m1.detach().cpu().numpy()
     res["per_run"] = {r: {"l1_shift_deg": l1[j], "l2_shift_deg": l2[j],
+                          "l2_gain": 1.0 + float(g if g.ndim == 0 else g[j]),
                           "l1_deg": float(json.loads(Path(MC.format(RUNS[r]["dataset"])).read_text())
                                           ["L1_anchor_deg"]) + l1[j],
                           "l2_ref_deg": RUNS[r]["l2_ref"] + l2[j]} for j, r in enumerate(runs)}
@@ -217,9 +223,10 @@ def run_null(device):
 def run_arm(arm, restarts, iters, device):
     if arm == "N_full":
         return run_null(device)
-    runs, mode, drift, held = arm_spec(arm)
+    runs, mode, drift, held, run_gain = arm_spec(arm)
     cfg, setup, base, ridx, scan, tgt, meta = build(runs, mode, drift, device)
     out = {"arm": arm, "runs": list(runs), "mode": mode, "drift": drift, "held_out": held,
+           "run_gain": run_gain,
            "model": MODEL, "l1_sigma_deg": L1_SIGMA_DEG, "l2_sigma_deg": L2_SIGMA_DEG,
            "meta": meta, "fits": [], "provenance": provenance(REPO / "configs" / "fit_stageD2W_15673.yaml")}
     path = OUT / "fits" / f"{arm}.json"
@@ -227,7 +234,7 @@ def run_arm(arm, restarts, iters, device):
     best, best_loss = None, np.inf
     for s in range(restarts):
         rng = np.random.default_rng(1000 + s) if s else None
-        m, cfg_d2 = make_model(cfg, setup, base, ridx, scan, device, seed=s, rng=rng)
+        m, cfg_d2 = make_model(cfg, setup, base, ridx, scan, device, seed=s, rng=rng, run_gain=run_gain)
         t0 = time.time()
         res = fit(m, tgt, cfg, cfg_d2, iters)
         hist = res.pop("loss_history")
@@ -237,7 +244,8 @@ def run_arm(arm, restarts, iters, device):
                    loss_last=hist[-1], fit_seconds=time.time() - t0, state=state(m))
         summarize(m, res, runs)
         out["fits"].append(res)
-        print(f"  {arm} restart {s}: img {parts['img']:.4f} off {parts['off']:.4f} g {res['l2_gain']:.3f} "
+        print(f"  {arm} restart {s}: img {parts['img']:.4f} off {parts['off']:.4f} "
+              f"g {[round(v['l2_gain'], 3) for v in res['per_run'].values()]} "
               f"L1 {[round(v['l1_deg'], 2) for v in res['per_run'].values()]} walls {res['walls']} "
               f"({res['fit_seconds'] / 60:.1f} min)", flush=True)
         if parts["img"] < best_loss:
@@ -263,7 +271,7 @@ def run_arm(arm, restarts, iters, device):
         path.write_text(json.dumps(out, indent=1))
         sc, imgs = score_full(res["state"], (held,), drift, device)
     else:
-        sc, imgs = score_full(best["state"], runs, drift, device)
+        sc, imgs = score_full(best["state"], runs, drift, device, run_gain=run_gain)
     out["score_full"] = {**sc, "seed": best["seed"]}
     path.write_text(json.dumps(out, indent=1))
     (OUT / "render").mkdir(exist_ok=True)

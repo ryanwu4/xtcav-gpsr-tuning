@@ -333,7 +333,7 @@ class ForwardModel(torch.nn.Module):
                  resid_tau: float = 0.3, row_center: bool = False,
                  scan_deg: torch.Tensor | None = None, l2_gain_sigma: float = 0.25,
                  fit_blur: bool = False, blur_prior_px: float = 5.0,
-                 run_idx: torch.Tensor | None = None):
+                 run_idx: torch.Tensor | None = None, run_gain: bool = False):
         """Stage-D extensions (all default-off, Stage-C behavior unchanged):
         image_anchor — render anchor='none' then COM-center the IMAGE (the shared
           Stage-D anchor op; particle-space anchors don't exist on the real side);
@@ -365,7 +365,8 @@ class ForwardModel(torch.nn.Module):
 
         Stage-D3 extension (several scans in one batch; default-off):
         run_idx — (B,) integer run index of every base row: the L1 and L2 shifts become one
-          per run (shape (n_runs,)), everything else stays shared. base_off must equal base."""
+          per run (shape (n_runs,)), everything else stays shared. base_off must equal base;
+        run_gain — with run_idx, one L2 scan gain per run as well."""
         super().__init__()
         self.s = setup
         self.register_buffer("base", base_knobs_norm.to(setup.device))  # (B,n_knob)
@@ -404,7 +405,9 @@ class ForwardModel(torch.nn.Module):
                                                              device=setup.device))
         else:
             self.scan_deg = None
-        self.l2_gain_m1 = torch.nn.Parameter(torch.zeros((), dtype=torch.float64),
+        gain_shape = shift_shape if run_gain else ()
+        assert not run_gain or run_idx is not None, "run_gain needs run_idx"
+        self.l2_gain_m1 = torch.nn.Parameter(torch.zeros(gain_shape, dtype=torch.float64),
                                              requires_grad=scan_deg is not None)
         # screen resolution σ = blur_prior_px · |blur_u| [px], rows (streaked, off) × (energy,
         # time/x): linear in the parameter so an Adam step moves σ by ~lr · blur_prior_px (a
@@ -511,9 +514,9 @@ class ForwardModel(torch.nn.Module):
         return torch.where(t >= 0, t * self.s.bound_hi, t * lo)
 
     def _per_row(self, shift: torch.Tensor) -> torch.Tensor:
-        """A shift parameter as applied to the base rows: the scalar itself, or each row's
+        """A shift parameter as applied to the base rows: a scalar itself, or each row's
         run entry (Stage D3, run_idx)."""
-        return shift if self.run_idx is None else shift[self.run_idx]
+        return shift if shift.dim() == 0 else shift[self.run_idx]
 
     def knobs(self, base: torch.Tensor | None = None) -> torch.Tensor:
         k = (self.base if base is None else base).clone().to(torch.float32)
@@ -530,7 +533,7 @@ class ForwardModel(torch.nn.Module):
                                      ).to(torch.float32)).clamp(0.0, 1.0)
         if self.scan_deg is not None:
             k[:, self._l2_col] = (k[:, self._l2_col]
-                                  + (self.l2_gain_m1 * self.scan_deg / self._l2_span_deg
+                                  + (self._per_row(self.l2_gain_m1) * self.scan_deg / self._l2_span_deg
                                      ).to(torch.float32)).clamp(0.0, 1.0)
         return k
 
@@ -821,7 +824,8 @@ def _stage_d2_state(model) -> dict:
         blur = model.blur_sigma_px().cpu().numpy()
     l1 = model.l1_shift_deg.detach()
     return {"l1_shift_deg": float(l1) if l1.dim() == 0 else l1.cpu().tolist(),
-            "l2_gain": 1.0 + float(model.l2_gain_m1),
+            "l2_gain": (1.0 + float(model.l2_gain_m1) if model.l2_gain_m1.dim() == 0
+                        else (1.0 + model.l2_gain_m1.detach()).cpu().tolist()),
             "blur_px": ({"streak_energy": float(blur[0, 0]), "streak_time": float(blur[0, 1]),
                          "off_energy": float(blur[1, 0]), "off_x": float(blur[1, 1])}
                         if model.fit_blur else None),
@@ -855,7 +859,7 @@ def _nuisance_prior(model, l2ref_sigma_deg=0.3, nu_y_sigma_ln=None,
         if model.l1_shift_deg.requires_grad:
             l = l + ((model.l1_shift_deg / l1ref_sigma_deg) ** 2).sum()
         if model.l2_gain_m1.requires_grad:
-            l = l + (model.l2_gain_m1 / model.l2_gain_sigma) ** 2
+            l = l + ((model.l2_gain_m1 / model.l2_gain_sigma) ** 2).sum()
         # beam latent (Stage D2): the model's own p(s|knobs), same χ² units
         l = l + model.latent_chi2()
     if nu_y_sigma_ln is not None:
