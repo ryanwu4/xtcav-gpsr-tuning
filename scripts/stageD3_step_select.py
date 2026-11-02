@@ -37,8 +37,10 @@ import numpy as np  # noqa: E402
 REPO = Path(__file__).resolve().parents[1]
 S2R = Path("/home/rwu4/photoinjector-rl/XTCAV_analysis/sim2real/results")
 OUT = REPO / "results" / "stageD3"
-RUNS = {  # dataset: (sim run tag, L2 ref of that sim run [deg])
-    "E300_15671": ("l1sigma370_full", -38.0),
+RUNS = {  # dataset: (sim run tag, L2 ref of that sim run [deg]); all at the readback L1 phases
+    # (15671's bunch-length-anchored sim l1sigma370_full, L1 -22.35, gives the same window but a 2x
+    # slope and contradicts the BC11 BLEN ordering, see docs/stageD3_log.md 2026-11-02)
+    "E300_15671": ("l2ref-38.00_value_match", -38.0),
     "TEST_15668": ("l2ref-40.35_value_match", -40.35),
     "E300_15673": ("l2ref-38.00_value_match", -38.0),
 }

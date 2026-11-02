@@ -115,35 +115,37 @@ def window_tv(fit, run, sel, key="score_full"):
 
 
 def figure_transfer(sel, summary):
+    arms = (("no fit", "N_full"), ("fitted alone", "S{r}_win"), ("fitted jointly", "J_win"),
+            ("fitted jointly, own L2 gain per run", "J_win_g"), ("predicted from the other two", "LORO{r}"),
+            ("predicted from the other two, own L2 gain", "LOROg{r}"))
+    style = {"no fit": ("#B8BEC9", None), "fitted alone": ("#6B7689", None),
+             "fitted jointly": ("#2a78d6", None), "fitted jointly, own L2 gain per run": ("#2a78d6", "///"),
+             "predicted from the other two": ("#eb6834", None),
+             "predicted from the other two, own L2 gain": ("#eb6834", "///")}
     rows = []
     for r in ORDER:
         vals = {}
-        for name, arm in (("no fit", "N_full"), ("fitted alone", f"S{r}_win"),
-                          ("fitted jointly", "J_win"), ("fitted jointly, own L2 gain", "J_win_g"),
-                          ("predicted from the other two", f"LORO{r}")):
-            f = load(arm)
+        for name, arm in arms:
+            f = load(arm.format(r=r))
             if f is not None:
                 vals[name] = window_tv(f, r, sel)
         rows.append((r, vals))
     summary["window_tv"] = {r: v for r, v in rows}
-    names = ["no fit", "fitted alone", "fitted jointly", "fitted jointly, own L2 gain",
-             "predicted from the other two"]
-    colors = ["#B8BEC9", "#6B7689", "#2a78d6", "#1baf7a", "#eb6834"]
-    keep = [k for k, n in enumerate(names) if any(n in v for _, v in rows)]
-    names, colors = [names[k] for k in keep], [colors[k] for k in keep]
-    fig, ax = plt.subplots(figsize=(8.5, 4.0))
-    w = 0.8 / len(names)
-    for k, (n, c) in enumerate(zip(names, colors)):
+    names = [n for n, _ in arms if any(n in v for _, v in rows)]
+    fig, ax = plt.subplots(figsize=(10.0, 4.3))
+    w = 0.84 / len(names)
+    for k, n in enumerate(names):
+        c, hatch = style[n]
         x = [i + (k - (len(names) - 1) / 2) * w for i, (r, v) in enumerate(rows) if n in v]
         y = [v[n] for r, v in rows if n in v]
-        ax.bar(x, y, w * 0.92, color=c, label=n)
+        ax.bar(x, y, w * 0.9, color="white" if hatch else c, edgecolor=c, hatch=hatch, lw=1.2, label=n)
         for xi, yi in zip(x, y):
-            ax.text(xi, yi + 0.01, f"{yi:.2f}", ha="center", va="bottom", fontsize=7.5)
+            ax.text(xi, yi + 0.01, f"{yi:.2f}", ha="center", va="bottom", fontsize=7)
     ax.set_xticks(range(len(rows)))
     ax.set_xticklabels([LABEL[r] for r, _ in rows], fontsize=8.5)
     ax.set_ylabel("mean image error in the window (TV)")
-    ax.set_ylim(0, 1.25 * max(max(v.values()) for _, v in rows if v))
-    ax.legend(fontsize=8, ncol=3, loc="upper center")
+    ax.set_ylim(0, 1.3 * max(max(v.values()) for _, v in rows if v))
+    ax.legend(fontsize=7.5, ncol=3, loc="upper center")
     fig.tight_layout()
     fig.savefig(FIG / "transfer.png", dpi=140)
     plt.close(fig)
@@ -197,7 +199,7 @@ XTCAV = Path("/home/rwu4/photoinjector-rl/XTCAV_analysis")
 BLEN_PV = {"BC11": ("BSA_List_S11", "BLEN_LI11_359_BRAW"), "BC14": ("BSA_List_S14", "BLEN_LI14_888_BRAW"),
            "FF": ("BSA_List_S20", "BLEN_LI20_3014_BRAW")}
 BLEN_MARKER = {"BC11": "ENDBC11_2", "BC14": "ENDBC14_2", "FF": "MFFF"}
-BLEN_SIM = {"E300_15671": "E300_15671_l2ref-38.00_l1abs-22.35", "TEST_15668": "TEST_15668_l2ref-40.35",
+BLEN_SIM = {"E300_15671": "E300_15671_l2ref-38.00", "TEST_15668": "TEST_15668_l2ref-40.35",
             "E300_15673": "E300_15673_l2ref-38.00"}     # the July sims the step selection used
 
 
@@ -224,7 +226,9 @@ def real_blen():
 
 def figure_blen(sel, summary, proxy="int_lambda2_per_mm"):
     real = real_blen()
-    fig, axes = plt.subplots(2, 3, figsize=(13.0, 6.4), sharex=True, sharey="row")
+    mons = ("BC14",)   # the FF pyrometer barely moves along any real scan, so its shape says nothing
+    fig, axes = plt.subplots(len(mons), 3, figsize=(13.0, 3.9 * len(mons)), sharex=True, sharey="row",
+                             squeeze=False)
     out = {}
     for j, r in enumerate(ORDER):
         ds = DS[r]
@@ -234,7 +238,7 @@ def figure_blen(sel, summary, proxy="int_lambda2_per_mm"):
         scan = 0.25 * np.arange(len(s["real_plus"]))
         kept = s["kept_steps"]
         out[r] = {}
-        for i, mon in enumerate(("BC14", "FF")):
+        for i, mon in enumerate(mons):
             ax = axes[i, j]
             ax.axvspan(scan[kept[0]] - 0.12, scan[kept[-1]] + 0.12, color="#1baf7a", alpha=0.12, lw=0)
             y = np.asarray(real[ds][mon])
@@ -249,18 +253,18 @@ def figure_blen(sel, summary, proxy="int_lambda2_per_mm"):
                 out[r][f"sim_{mon}_peak_deg"] = float(xs[int(np.argmax(v))])
             if i == 0:
                 ax.set_title(LABEL[r], fontsize=10, color=RUN_COLORS[ds])
-            else:
+            if i == len(mons) - 1:
                 ax.set_xlabel("L2 phase scan value [deg]")
         axes[0, j].text(scan[s["i_min"]] + 0.1, 0.03, "screen: full\ncompression", color="#2a78d6", fontsize=7.5,
                         va="bottom")
-    axes[0, 0].set_ylabel("after BC14\n(signal / scan max)")
-    axes[1, 0].set_ylabel("final focus\n(signal / scan max)")
+    axes[0, 0].set_ylabel("bunch-length signal after BC14\n(signal / scan max)")
     axes[0, 0].legend(fontsize=8, loc="upper left")
     for ax in axes.flat:
         ax.set_ylim(0, 1.08)
-    fig.text(0.5, 0.005, "real: raw BLEN counts (higher = shorter bunch).  simulation: coherent-power proxy "
-             "∫λ(z)² dz of the FACET2-S2E beam at the monitor.  green = fit window", ha="center", fontsize=8.5)
-    fig.tight_layout(rect=(0, 0.03, 1, 1))
+    fig.text(0.5, 0.01, "real: raw BLEN counts (higher = shorter bunch).  simulation: coherent-power proxy "
+             "∫λ(z)² dz of the FACET2-S2E beam at the monitor, shifted in L2 as in the step selection.  "
+             "green = fit window", ha="center", fontsize=8.5)
+    fig.tight_layout(rect=(0, 0.05, 1, 1))
     fig.savefig(FIG / "blen.png", dpi=140)
     plt.close(fig)
     summary["blen_peaks"] = out
@@ -275,6 +279,7 @@ def main():
     figure_gallery(sel)
     figure_blen(sel, summary)
     arms = (("J_win", "J_full", "J_win_drift", "J_win_g") + tuple(f"LORO{r}" for r in ORDER)
+            + tuple(f"LOROg{r}" for r in ORDER)
             + tuple(f"S{r}_{m}" for r in ORDER for m in ("win", "full")))
     for arm in arms:
         f = load(arm)
